@@ -89,6 +89,8 @@ say()
 
 # Parse main ARGV parameters
 WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
+if not WHAT:
+    WHAT='ask'
 RESTORE_FLAG =  ( WHAT.find('restore')==0 )
 if RESTORE_FLAG:
    WHAT = WHAT[len('restore:'):]
@@ -955,7 +957,7 @@ elif MAIN_PROFILE in ['', '*']:
 else:
     say( "Скачать: %s", MAIN_PROFILE )
     try:
-         say( "%s", util.str_cp866(MAIN_PROFILE) )
+         say( "%s", util.str_cp866(MAIN_PROFILE) )      # different encoding
     except:
         pass
 
@@ -1425,7 +1427,7 @@ def downloadVideo( file_videolist, start_idx ):
                     match = re.search('rutube\.ru/play/embed/([0-9]+)',htmlline)
                     if match:
                         url=match.group(0)
-                        say( "Видео расположено на RUTUBE и поэтому не может быть скачано:\n%s" % url )
+                        say( "Видео расположено на RUTUBE и поэтому не может быть скачано:\n%s", url )
                         ChangeLine( 'to_download', url )
                         ChangeLine( 'size', url )
                         continue
@@ -1586,7 +1588,7 @@ if WHAT=='photo':
         ofs  = 0
         count = -1
         kw = get_album_kw( load_objid, load_albumname )
-        say("   в --> %s" % TGTDIR )
+        say("   в --> %s", TGTDIR )
         say( "Скачивание в процессе. Пожалуйста ожидайте..." )
         while ( count < 0 or ofs < count ):
                 if load_albumname is None:
@@ -1684,8 +1686,8 @@ if WHAT=='mp3':
         kw = get_album_kw( load_objid, load_albumname )
         ##say( "*** %s",  kw )
         if load_albumname is not None:
-            say("Альбом #%s" % load_albumname)
-        say("   в --> %s" % MP3DIR )
+            say("Альбом #%s", load_albumname)
+        say("   в --> %s", MP3DIR )
 
         answ = vk_api.audio.get( count = 2000, **kw )
         idx = int(answ[u'count'])
