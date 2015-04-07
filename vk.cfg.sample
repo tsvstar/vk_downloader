@@ -1,0 +1,30 @@
+APP_ID=?????	 	 # GET YOUR OWN API/Client id (see HOW_TO_START.txt)
+
+DAYSBEFORE=700       	 # How deeply load history
+IF_DELETE=None      	 # Delete messages: None - ask, False/True - delete or not
+
+DOWNLOAD_MP3= True       # True = download mp3 in messages/wall
+DOWNLOAD_MP3_ONCE= True	 # True - if mp3 was dloaded then remember and do not download even if it was deleted locally {REMEMBER_SKIP_MP3}
+SKIP_EXISTED_FILE= True  # If img/media exists then do not update it
+
+DOWNLOAD_VIDEO = True      # Store video for later download
+VIDEO_MAX_SIZE = 500       # Maximum resolution to download
+
+
+WALL_QUICKUPDATE = True      # If True update existed wall records only if like/comment count was changed            !!!TODO
+LOAD_COMMENTS =    True      # Need to Download comments for wall
+LOAD_LIKES =       False     # Need to Download likes for wall
+DOWNLOAD_AS_HTML = True      # Download as plain text or as html
+SEPARATE_TEXT =    'year'    # How to separate text of wall [None|day|month|year|id]
+SEPARATE_MEDIA =   'month'   # How to separate media of wall [None|day|month|year|id]
+WALL_DEDUPE =      False     # if True - check for existance (by preview) of same post and exclude(comment out) it
+WALL_HIDE_ONLY_IMAGE = False # if True - comment out messages with no body and only images
+
+
+SKIP_AUTH_TOKEN =  False     # Do not authenticate using AUTH TOKEN
+CONSOLE_SIZE =     '130:45'  # minimum height/width of console in symbols
+
+
+# Debug options:
+WRITE_MSGID=       False      # True = for debug purpose (write to file msgid), False = otherwise
+SHOW_SKIPED_MEDIA= False      # True = display names of media files which was skiped

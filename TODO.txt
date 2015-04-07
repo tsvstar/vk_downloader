@@ -1,0 +1,14 @@
+TOCHECK: 
+	load by day, wall_dedupe, wall_hide_only_image
+
+TODO:
+	hide deduped post in index file
+	do not hide if WALL_HIDE_ONLY_IMAGE=True but loaded like/comment exists
+	Write: HOW_TO_START.txt / HOW_TO_START_ru.txt
+	Write complete manual
+
+	more url patterns to detect
+	detect group by nickname
+	GUI
+	adapt for other OS (now Windows only)
+
