@@ -74,7 +74,7 @@ if len(sysargv)>4:
     for arg in sysargv[4:]:
         a = arg.split('=',1)
         if len(a)>1 and a[0].startswith('--'):
-            k = a[0][2:].upper()
+            k = a[0][2:].replace('-','_').upper()
             if k not in util.CONFIG:
                 say( "ERROR: Неизвестная опция %s", arg )
             else:
