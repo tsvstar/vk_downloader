@@ -621,7 +621,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
         if not CONFIG['LOAD_COMMENTS']: count_comments = 0
 
         if cacheHandler:
-            # [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7body ]
+            # [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7is_only_img_attach, -1body ]
             ##print [ textHandler, id, t, who, ';', count_comments, count_likes ]
             msg_cached = cacheHandler( textHandler, id, t, who )
             ##print msg_cached
@@ -1797,10 +1797,12 @@ if WHAT=='wall':
 
         # Handler which check existance of msg in cache and try to load cache from .html file
         # RETURN: None or
-        #       [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7body ]
+        #      [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7is_only_img_attach, -1body ]
 
         def cacheHandler( textHandler, msgid, t, who ):
-            global MSG_CACHE, MSG_CACHE_FILE
+            global MSG_CACHE_FILES          # MSG_CACHE_FILES[suffix] = True if that file was loaded to cache,
+                                            #                           Absent if not processed yet
+            global MSG_CACHE                # MSG_CACHE[msgid] = [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7is_only_img_attach, -1body ]
 
             if msgid in MSG_CACHE:
                 return MSG_CACHE[msgid]
@@ -1809,20 +1811,29 @@ if WHAT=='wall':
             if vv in MSG_CACHE_FILES:
                 return None
 
+            MSG_CACHE_FILES[vv] = True      # Mark file as processed
+
             TGT_FILE = _makeFName( vv, True )
             ##print str_cp866(TGT_FILE)
             if not os.path.isfile(TGT_FILE):
                 return None
 
-            MSG_CACHE_FILES[vv] = True
             msg = None
             with open( TGT_FILE, 'rb' ) as f:
                 for l in f:
                     if msg is None:
+                        # check is file use the same paths for attachment
+                        if l.startswith('<!--\tSEPARATE_MEDIA\t'):
+                            l = l.split('\t')
+                            if l[2]!=CONFIG['SEPARATE_MEDIA']:
+                                return None
+
+                        # detect beginning of the record
                         if l.startswith('<!--\tWALL\t'):
                             l = l.split('\t')
                             msg = l[2:-1] + [ [] ]
                     elif l.startswith('<!--\tSTOPWALL\t'):
+                        # load body of the record
                         msg[-1] = ''.join(msg[-1])
                         MSG_CACHE[int(msg[1])] = msg
                         msg = None
@@ -1838,6 +1849,7 @@ if WHAT=='wall':
             fp.write('<html>\n<head>\n<meta http-equiv="Content-Type" content="text/html;charset=cp1251">\n')
             fp.write('<title>' + html_title +'</title>\n' )
             fp.write('<style>a.b:link, a.b:visited, a.b:active,a.b:hover { color: black; text-decoration: underline;}</style>\n')
+            fp.write('<!--\tSEPARATE_MEDIA\t%s\t-->\n' % CONFIG['SEPARATE_MEDIA'] )
             fp.write('</head>\n<body>\n\n')
 
 
