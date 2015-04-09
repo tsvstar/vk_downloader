@@ -1,5 +1,6 @@
 TOCHECK: 
 	load by day, wall_dedupe, wall_hide_only_image
+	vk cache separate_media
 
 TODO:
 	hide deduped post in index file
