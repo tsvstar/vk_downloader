@@ -1,4 +1,4 @@
-APP_ID=?????	 	 # GET YOUR OWN API/Client id (see HOW_TO_START.txt)
+#APP_ID=?????	 	 # GET YOUR OWN API/Client id, uncomment this and fill it (see HOW_TO_START.txt)
 
 DAYSBEFORE=700       	 # How deeply load history
 IF_DELETE=None      	 # Delete messages: None - ask, False/True - delete or not

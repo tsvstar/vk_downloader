@@ -38,10 +38,10 @@ dflt_config = {
     'WALL_QUICKUPDATE':  True,      # If True update existed wall records only if like/comment count was changed            !!!TODO
 
     'SKIP_AUTH_TOKEN':   False,     # Do not authenticate using AUTH TOKEN
-    #'CONSOLE_SIZE':      '80:25',   # line/width
-    'CONSOLE_SIZE':      '100:35',   # line/width
+    #'CONSOLE_SIZE':      '80:25',  # line/width
+    'CONSOLE_SIZE':      '100:35',  # line/width
     'WALL_DEDUPE':       False,     # if True - check for existance (by preview) of same post and exclude(comment out) it
-    'WALL_HIDE_ONLY_IMAGE': False,    # if True - comment out messages with no body and only images
+    'WALL_HIDE_ONLY_IMAGE': False,  # if True - comment out messages with no body and only images
     'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
     'SECONDARY_PWD_ENC':  ''        #
 }
@@ -1824,14 +1824,14 @@ if WHAT=='wall':
                     if msg is None:
                         # check is file use the same paths for attachment
                         if l.startswith('<!--\tSEPARATE_MEDIA\t'):
-                            l = l.split('\t')
-                            if l[2]!=CONFIG['SEPARATE_MEDIA']:
+                            l1 = l.split('\t')
+                            if l1[2]!=CONFIG['SEPARATE_MEDIA']:
                                 return None
 
                         # detect beginning of the record
                         if l.startswith('<!--\tWALL\t'):
-                            l = l.split('\t')
-                            msg = l[2:-1] + [ [] ]
+                            l1 = l.split('\t')
+                            msg = l1[2:-1] + [ [] ]
                     elif l.startswith('<!--\tSTOPWALL\t'):
                         # load body of the record
                         msg[-1] = ''.join(msg[-1])
