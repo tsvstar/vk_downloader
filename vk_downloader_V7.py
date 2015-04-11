@@ -2089,6 +2089,25 @@ def executeWALL():
 #       ACTION 'delete' (delete chat)             #
 ###################################################
 """
+def removeMessage( list_to_del ):
+        list_to_del = list(list_to_del)
+        list_to_del.sort()
+        lst = list_to_del
+        batch_size = 100
+        with open( FILE_BAKDEL, "ab" ) as tmpfp:
+            while len(lst) > 0:
+               if len(lst) > batch_size :
+                    delids = ','.join( map( lambda s: str(s), lst[0:batch_size] ) )
+                    lst = lst[batch_size:]
+               else:
+                    delids = ','.join( map( lambda s: str(s), lst ) )
+                    lst = []
+               #print "DELETE %s" % str(delids)
+               tmpfp.write( str_encode(delids) + "\n" )
+               tmpfp.flush()
+               vk_api.messages.delete( message_ids=delids )
+               util.print_mark('.')
+            say()
 
 def executeDELETE():
     global load_queue
@@ -2212,26 +2231,6 @@ def executeDELETE():
         else:
             say("Введено: без ограничений")
         return value.lower()
-
-    def removeMessage( list_to_del ):
-        list_to_del = list(list_to_del)
-        list_to_del.sort()
-        lst = list_to_del
-        batch_size = 100
-        with open( FILE_BAKDEL, "ab" ) as tmpfp:
-            while len(lst) > 0:
-               if len(lst) > batch_size :
-                    delids = ','.join( map( lambda s: str(s), lst[0:batch_size] ) )
-                    lst = lst[batch_size:]
-               else:
-                    delids = ','.join( map( lambda s: str(s), lst ) )
-                    lst = []
-               #print "DELETE %s" % str(delids)
-               tmpfp.write( str_encode(delids) + "\n" )
-               tmpfp.flush()
-               vk_api.messages.delete( message_ids=delids )
-               util.print_mark('.')
-            say()
 
 
 
