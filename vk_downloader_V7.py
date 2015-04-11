@@ -2,6 +2,16 @@
 
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]
 
+#TODO: ?WAIT_AFTER (need to exclude exceptions, otherwise this module will be None)
+#      +message: squeeze: '  '->' '
+#      create/use __msg_all.last.bak
+#      multithreaded dload(?)
+# change order of choosing format (webm(vp8) have better quality for 360p)
+# apply extension to video from fmt (incl/ correct cache )
+# why dloader do not see 480p? (for example -- https://www.youtube.com/watch?v=8EaQZnq1R1Q ) -- looks like it is segmented
+#  -->  + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676367305285&ip=46.164.135.35&key=yt5&itag=140&mime=audio%2Fmp4&keepalive=yes&clen=7290578&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=154BA0F13BBCABCB9FDFE876AF450804EE93446B.9F54E30B4BD872A0E887649B963FE13AEDD6EEEB&pl=22&mm=31&dur=454.089&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&type=audio/mp4;+codecs="mp4a.40.2"&index=592-1175&bitrate=129645&init=0-591&
+#       + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676376236216&ip=46.164.135.35&key=yt5&itag=135&mime=video%2Fmp4&keepalive=yes&clen=6460073&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=7F632C563F0569E34285FF2CBA466B3B869854A2.86D712EDC84F694A70F725436D4E8DC5252B79CC&pl=22&mm=31&dur=453.968&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&init=0-709&fps=30&size=804x480&type=video/mp4;+codecs="avc1.4d401f"&index=710-1833&bitrate=297257&
+
 
 import os, time, base64, re, codecs, random     #, pickle,urllib
 import vk, pytube
@@ -43,82 +53,88 @@ dflt_config = {
     'WALL_DEDUPE':       False,     # if True - check for existance (by preview) of same post and exclude(comment out) it
     'WALL_HIDE_ONLY_IMAGE': False,  # if True - comment out messages with no body and only images
     'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
-    'SECONDARY_PWD_ENC':  ''        #
+    'SECONDARY_PWD_ENC':  '',       #
+    'WAIT_AFTER':       True,       # If False - do not wait after finish the script
 }
 
-"""
-##########################################
-#   LOAD AND PROCESS CONFIG              #
-##########################################
-"""
 
 CFGFILE = "./vk.cfg"
 util.CONFIG = dflt_config.copy()
 CONFIG = util.CONFIG
-util.load_config( CFGFILE )
-
-console_size = CONFIG['CONSOLE_SIZE'].split(':')+['0']
-cw_new, ch_new = util.make_int(console_size[0]), util.make_int(console_size[1])
-cw, ch = util_console.getTerminalSize()
-if cw_new <= cw: cw_new = None
-if ch_new <= ch: ch_new = None
-util_console.setTerminalSize( cw_new, ch_new )
-
-sysargv = util.getSysArgv()
-ARGV = util.getWinSysArgv()
 
 
-# get keys from argv
-if len(sysargv)>4:
-    lines = []
-    for arg in sysargv[4:]:
-        a = arg.split('=',1)
-        if len(a)>1 and a[0].startswith('--'):
-            k = a[0][2:].replace('-','_').upper()
-            if k not in util.CONFIG:
-                say( "ERROR: Неизвестная опция %s", arg )
-            else:
-                lines.append( [k, a[1]] )
-    util.load_config_lines( lines )
+"""
+##########################################
+#   LOAD AND PROCESS CONFIG + SYSARGV    #
+##########################################
+"""
 
-# Copy util.CONFIG to this module globals
-util.import_vars( globals(), util.CONFIG, dflt_config.keys(), isOverwrite=True )
-IF_DELETE_GLOBAL = CONFIG['IF_DELETE']
+def Initialize():
+    global WHAT,RESTORE_FLAG,MAIN_PROFILE, IF_DELETE_GLOBAL
 
-say()
+    util.load_config( CFGFILE )
 
-# Parse main ARGV parameters
-WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
-if not WHAT:
-    WHAT='ask'
-RESTORE_FLAG =  ( WHAT.find('restore')==0 )
-if RESTORE_FLAG:
-   WHAT = WHAT[len('restore:'):]
-   if len(WHAT)==0: WHAT='message'
-if len(sysargv)>2 and len(sysargv[2]): CONFIG['USER_LOGIN'] = sysargv[2]
-if len(sysargv)>3: MAIN_PROFILE  = ARGV[3]
-try:
-    if len(sysargv)>4: IF_DELETE_GLOBAL = int(sysargv[4])
-except:
-    pass
+    console_size = CONFIG['CONSOLE_SIZE'].split(':')+['0']
+    cw_new, ch_new = util.make_int(console_size[0]), util.make_int(console_size[1])
+    cw, ch = util_console.getTerminalSize()
+    if cw_new <= cw: cw_new = None
+    if ch_new <= ch: ch_new = None
+    util_console.setTerminalSize( cw_new, ch_new )
+
+    sysargv = util.getSysArgv()
+    ARGV = util.getWinSysArgv()
 
 
-# Basic validations
+    # get keys from argv
+    if len(sysargv)>4:
+        lines = []
+        for arg in sysargv[4:]:
+            a = arg.split('=',1)
+            if len(a)>1 and a[0].startswith('--'):
+                k = a[0][2:].replace('-','_').upper()
+                if k not in util.CONFIG:
+                    say( "ERROR: Неизвестная опция %s", arg )
+                else:
+                    lines.append( [k, a[1]] )
+        util.load_config_lines( lines )
 
-try:
-    if APP_ID is None:
-        raise Abort()
-    CONFIG['APP_ID'] = int(APP_ID)
-    APP_ID = CONFIG['APP_ID']
-except:
-    raise Abort("Неизвестное значение APP_ID - оно должно быть задано как число в vk.cfg файле")
+    # Copy util.CONFIG to this module globals
+    util.import_vars( globals(), util.CONFIG, dflt_config.keys(), isOverwrite=True )
+    IF_DELETE_GLOBAL = CONFIG['IF_DELETE']
 
-if WHAT not in ['','message','photo','mp3','wall','ask','video', 'delete']:
-    say( "\nERROR: Неизвестное действие - %s\n\n", WHAT )
-    ARGV=[]
+    say()
 
-if len(ARGV)<2:
-    help = """
+    # Parse main ARGV parameters
+    WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
+    if not WHAT:
+        WHAT='ask'
+    RESTORE_FLAG =  ( WHAT.find('restore')==0 )
+    if RESTORE_FLAG:
+       WHAT = WHAT[len('restore:'):]
+       if len(WHAT)==0: WHAT='message'
+    if len(sysargv)>2 and len(sysargv[2]): CONFIG['USER_LOGIN'] = sysargv[2]
+    if len(sysargv)>3: MAIN_PROFILE  = ARGV[3]
+    try:
+        if len(sysargv)>4: IF_DELETE_GLOBAL = int(sysargv[4])
+    except:
+        pass
+
+
+    # Basic validations
+
+    try:
+        if CONFIG['APP_ID'] is None:
+            raise FatalError()
+        CONFIG['APP_ID'] = int(APP_ID)
+    except:
+        raise FatalError("Неизвестное значение APP_ID - оно должно быть задано как число в vk.cfg файле")
+
+    if WHAT not in ['','message','photo','mp3','wall','ask','video', 'delete']:
+        say( "\nERROR: Неизвестное действие - %s\n\n", WHAT )
+        ARGV=[]
+
+    if not ARGV:
+        help = """
 Как использовать:
   vk_downloader_all.py ДЕЙСТВИЕ ЛОГИН СПИСОК_ЦЕЛЕЙ ФЛАГИ
 
@@ -137,8 +153,12 @@ if len(ARGV)<2:
     vk_downloader_all.py photo smth@mail.com "https://vk.com/album8296250_211849784"
  * скачать все свои MP3
     vk_downloader_all.py mp3 smth@mail.com "*"
- """
-    raise FatalError(help)
+     """
+        raise FatalError(help)
+    return WHAT, RESTORE_FLAG, MAIN_PROFILE
+
+
+
 
 def VKEnterLogin( fldName = 'USER_LOGIN' ):
     USER_LOGIN = CONFIG[fldName]
@@ -148,10 +168,9 @@ def VKEnterLogin( fldName = 'USER_LOGIN' ):
             with open(CFGFILE, "at") as cfgfile:
                 cfgfile.write('%s="%s"\n' % (fldName, USER_LOGIN ) )
         say()
+    CONFIG[fldName] = USER_LOGIN
     return USER_LOGIN
 
-CONFIG['USER_LOGIN'] = VKEnterLogin()
-USER_LOGIN=CONFIG['USER_LOGIN']
 
 """
 #########################################
@@ -159,27 +178,34 @@ USER_LOGIN=CONFIG['USER_LOGIN']
 #########################################
 """
 
-if WHAT in ['photo','mp3','video']:
-    BASEDIR = "./DLOAD-%s" % USER_LOGIN
-elif WHAT in ['wall']:
-    BASEDIR = "./WALL-%s" % USER_LOGIN
-else:
-    BASEDIR = "./MSG-%s" % USER_LOGIN
-if not os.path.exists(BASEDIR):
-    os.makedirs(BASEDIR)
-IMGDIRBASE = '%s/images' % BASEDIR
-MP3DIRBASE = '%s/media' % BASEDIR
-DOCDIR = None                           #if None - get from MP3DIR
-SCRIPT_DIR = ""
+def InitializeDir( USER_LOGIN, WHAT ):
+    if WHAT in ['photo','mp3','video']:
+        BASEDIR = "./DLOAD-%s" % USER_LOGIN
+    elif WHAT in ['wall']:
+        BASEDIR = "./WALL-%s" % USER_LOGIN
+    else:
+        BASEDIR = "./MSG-%s" % USER_LOGIN
+    print BASEDIR
+    if not os.path.exists(BASEDIR):
+        os.makedirs(BASEDIR)
+    IMGDIRBASE = '%s/images' % BASEDIR
+    MP3DIRBASE = '%s/media' % BASEDIR
+    DOCDIR = None                           #if None - get from MP3DIR
+    SCRIPT_DIR = ""
 
-FILE_STORED = "%s/__msg.stored" % BASEDIR
-FILE_BAKDEL = "%s/__msg.bakdel" % BASEDIR
-FILE_MAIN   = "%s/__msg_all.last" % BASEDIR
-FILE_AUTH   = "./__vk.token-%s" % USER_LOGIN
-#FILE_AUTH_SESSION   = "./__vk.tokensession-%s" % USER_LOGIN
+    FILE_STORED = "%s/__msg.stored" % BASEDIR
+    FILE_BAKDEL = "%s/__msg.bakdel" % BASEDIR
+    FILE_MAIN   = "%s/__msg_all.last" % BASEDIR
+    FILE_AUTH   = "./__vk.token-%s" % USER_LOGIN
+    #FILE_AUTH_SESSION   = "./__vk.tokensession-%s" % USER_LOGIN
 
-FILE_MP3_SKIP = "./__vk.mp3list-%s" % USER_LOGIN
-FILE_VIDEO    = "./__vk.videolist"
+    FILE_MP3_SKIP = "./__vk.mp3list-%s" % USER_LOGIN
+    FILE_VIDEO    = "./__vk.videolist"
+
+    # Copy locals to this module globals (just do not declare them
+    util.import_vars( globals(), locals(), '*', isOverwrite=True )
+
+
 
 """
 ##########################################
@@ -200,6 +226,8 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56881;": "*OH* ",
                 "&#55356;&#57204;": "*FORK* ",
                 "&#55357;&#56365;": "*MOUSE* ",
+                "&#55357;&#56344;": "*ELEPHANT* ",
+                "&#55357;&#56451;": "*DANCE* ",
                 "&#55357;&#56873;": ":(( ",
                 "&#55357;&#56840;": "*EVIL* ",
                 "&#55357;&#56864;": "8-( ",
@@ -749,8 +777,6 @@ def init_dirs( objtype, objid, objname ):
 DAYS = ( u"ПН", u"ВТ", u"СР", u"ЧТ", u"ПТ", u"СБ", u"ВС")
 #@MORE_INIT@
 
-load_queue = []				# load_queue[idx] = [0type, 1id, 2title, 3album]
-
 
 """ VK LOGIN SEQUENCE """
 ##say( "Logged in as %s", USER_LOGIN )
@@ -768,7 +794,7 @@ def VKLoginByToken():
         #check auth
         try:
             me = vk_api.users.get()[0][u'id']
-            say( "Залогинены в offline-режиме как %s", USER_LOGIN )
+            say( "Залогинены в offline-режиме как %s", CONFIG['USER_LOGIN'] )
         except Exception as e:
             vk_api = None
     return vk_api
@@ -810,23 +836,28 @@ def VKSaveToken( vk_api ):
         with open(FILE_AUTH,'w') as f:
             f.write(str(vk_api.access_token))
 
+def VKSignIn( USER_LOGIN ):
+  global vk_api, me, USER_PASSWORD
 
-vk_api = None
-if not CONFIG['SKIP_AUTH_TOKEN']:
+  vk_api = None
+  if not CONFIG['SKIP_AUTH_TOKEN']:
     vk_api = VKLoginByToken()
 
-if vk_api is None:
+  if vk_api is None:
     ##say( "..full authorize.." )
     vk_api, me, USER_PASSWORD = VKLoginByPassword( USER_LOGIN, fldPwd='USER_PASSWORD', deleteToken = True )
     VKSaveToken( vk_api )
 
-if CONFIG['APP_ID']==dflt_config['APP_ID']:
+  if CONFIG['APP_ID']==dflt_config['APP_ID']:
     # Проверка доверенных пользователей
     #@APP_CHECK@
         raise FatalError('Неизвестный APP_ID - должен быть указан в vk.cfg')
 
+
+load_queue = []				# load_queue[idx] = [0type, 1id, 2title, 3album]
+
 """ Do 'ASK' """
-if WHAT=='ask':
+def executeAsk():
    menu = [ 'Скачать сообщения',
             'Скачать фото',
             'Скачать MP3',
@@ -839,6 +870,7 @@ if WHAT=='ask':
    for k in xrange(0, len(menu)):
         say( u" %d - %s" % (k+1, unicformat(menu[k])) )
    menu_keys = map(lambda v: str(v), range(1, len(menu)+1) )
+   RESTORE_FLAG = False
    while True:
        answ = util.confirm( "Выберите действие:", menu_keys )
        action_ar = ['message','photo','mp3', 'wall','delete','restore:message']
@@ -876,257 +908,265 @@ if WHAT=='ask':
             break
        if util.confirm(menu[k-1]+' - все [y/n]?'):
             break
+   return WHAT, RESTORE_FLAG, MAIN_PROFILE
 
 """  PARSE MAIN_PROFILE -> load_queue"""
 
-MAIN_PROFILE = MAIN_PROFILE.strip()
-if WHAT in ['video']:
-    match = re.search( "video(-?[0-9]+)(_([0-9]+))", MAIN_PROFILE )
-    if MAIN_PROFILE.find('vk.com/')>0 and match:
-        MAIN_PROFILE = "https://vk.com/" + match.group(0)
-        owner, videoid = int(match.group(1)), int(match.group(3))
-        res = vk_api.video.get(owner_id=owner, videos=videoid)[u'items']
+def PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE ):
+    global load_queue
 
-        if len(res):
-            title = str_encode( res[0][u'title'] )
-            t = time.strftime("%d.%m.%y %H:%M", time.localtime(res[0][u'date']))
-            duration = res[0].get(u'duration',0)
-            fname = "%s/%s-%s" % ( BASEDIR, t, fname_prepare(title) )
-        else:
-            title = ''
-            fname = ''  ##"%s/%s" % ( BASEDIR, fname_prepare(match.group(0)) )
-            duration=0
+    MAIN_PROFILE = MAIN_PROFILE.strip()
 
-        load_queue.append( [ 'value', MAIN_PROFILE, MAIN_PROFILE,
-                                #item3 = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
-                                [ '', MAIN_PROFILE, fname, get_duration(duration), title ] ] )
+    # 1) Video - have specific processing (could give URL, filelist, non-VK URLs)
+    if WHAT in ['video']:
+        match = re.search( "video(-?[0-9]+)(_([0-9]+))", MAIN_PROFILE )
+        if MAIN_PROFILE.find('vk.com/')>0 and match:
+            MAIN_PROFILE = "https://vk.com/" + match.group(0)
+            owner, videoid = int(match.group(1)), int(match.group(3))
+            res = vk_api.video.get(owner_id=owner, videos=videoid)[u'items']
 
-        MAIN_PROFILE = "~"
-    elif MAIN_PROFILE in ['','*']:
-        say( 'Загружаем все отложенные ранее видео' )
-        load_queue.append( [ 'value', '','' ] )
-        MAIN_PROFILE = '~'
-    elif util.is_any_find( MAIN_PROFILE, ['youtube.com/','youtu.be/','vimeo.com/','vk.com/'] ):
-        load_queue.append( [ 'value', MAIN_PROFILE, MAIN_PROFILE,
-                                #item3 = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
-                                [ '', MAIN_PROFILE, '', '' ] ] )
-        MAIN_PROFILE = "~"
-    elif  os.path.isfile(MAIN_PROFILE):
-        print"FILE"
-        # load in below file
-        pass
-    else:
-        raise FatalError( unicformat( "Не могу расшифровать URL - %s", MAIN_PROFILE ) )
-
-
-if os.path.isfile(MAIN_PROFILE):
-    say( "Загружаем файл %s", MAIN_PROFILE )
-    with open(MAIN_PROFILE,'r') as f:
-        lines = f.read().splitlines()
-        # filter empty and commented lines
-        lines = filter(lambda s: len(s) and not s.strip().startswith('#'), lines)
-    load_queue.append( [ 'file', MAIN_PROFILE, MAIN_PROFILE, '\n'.join(lines) ] )
-
-elif MAIN_PROFILE=='~':
-    # a) load_queue is already filled
-    pass
-
-elif RESTORE_FLAG:
-    load_queue.append( [ 'value', MAIN_PROFILE, 'value', MAIN_PROFILE ] )
-
-elif MAIN_PROFILE in ['', '*']:
-    # b) '*' - means load all
-
-    say( "Режим 'Скачать всё'" )
-    if WHAT=='delete':
-        if not util.confirm("Вы действительно хотите удалять все диалоги[y/n]?"):
-            raise OkExit()
-
-    if WHAT not in ['message', 'delete']:
-        ##print "ERROR: For '%s' action -- source have to be defined" % WHAT
-        load_queue.append( ['user', me, None ] )
-    else:
-        vv = vk_api.messages.getDialogs( count = 100, preview_length = 50 )
-        for k in vv[u'items']:
-            if u'chat_id' in k[u'message']:
-                load_queue.append( ['chat', k[u'message'][u'chat_id'], k[u'message'][u'title'] ] )
+            if len(res):
+                title = str_encode( res[0][u'title'] )
+                t = time.strftime("%d.%m.%y %H:%M", time.localtime(res[0][u'date']))
+                duration = res[0].get(u'duration',0)
+                fname = "%s/%s-%s" % ( BASEDIR, t, fname_prepare(title) )
             else:
-                uid = k[u'message'][u'user_id']
-                load_queue.append( ['user', k[u'message'][u'user_id'], None ] )
+                title = ''
+                fname = ''  ##"%s/%s" % ( BASEDIR, fname_prepare(match.group(0)) )
+                duration=0
 
-else:
-    say( "Скачать: %s", MAIN_PROFILE )
-    try:
-         say( "%s", util.str_cp866(MAIN_PROFILE) )      # different encoding
-    except:
+            load_queue.append( [ 'value', MAIN_PROFILE, MAIN_PROFILE,
+                                    #item3 = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
+                                    [ '', MAIN_PROFILE, fname, get_duration(duration), title ] ] )
+
+            MAIN_PROFILE = "~"
+        elif MAIN_PROFILE in ['','*']:
+            say( 'Загружаем все отложенные ранее видео' )
+            load_queue.append( [ 'value', '','' ] )
+            MAIN_PROFILE = '~'
+        elif util.is_any_find( MAIN_PROFILE, ['youtube.com/','youtu.be/','vimeo.com/','vk.com/'] ):
+            load_queue.append( [ 'value', MAIN_PROFILE, MAIN_PROFILE,
+                                    #item3 = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
+                                    [ '', MAIN_PROFILE, '', '' ] ] )
+            MAIN_PROFILE = "~"
+        elif  os.path.isfile(MAIN_PROFILE):
+            print"FILE"
+            # load in below file
+            pass
+        else:
+            raise FatalError( unicformat( "Не могу расшифровать URL - %s", MAIN_PROFILE ) )
+
+
+    if os.path.isfile(MAIN_PROFILE):
+        say( "Загружаем файл %s", MAIN_PROFILE )
+        with open(MAIN_PROFILE,'r') as f:
+            lines = f.read().splitlines()
+            # filter empty and commented lines
+            lines = filter(lambda s: len(s) and not s.strip().startswith('#'), lines)
+        load_queue.append( [ 'file', MAIN_PROFILE, MAIN_PROFILE, '\n'.join(lines) ] )
+
+    elif MAIN_PROFILE=='~':
+        # a) load_queue is already filled
         pass
 
-    # c) load given sequence (  [type1=]value1,[type2=]value2,.. )
-    MAIN_PROFILE = map( lambda a: a.split('=',1), MAIN_PROFILE.split(',') )
-    for p in MAIN_PROFILE:
-        if len(p) < 2:
-            p = ['user', p[0] ]
-        elif p[0].find('vk.com/')>=0:
-            p = ['user', '='.join(p) ]
-        ##print "SPLIT: %s" % str(p)
-        load_queue.append( [p[0].lower(), p[1], '%s_%s'%(p[0].lower(),p[1]) ] )
+    elif RESTORE_FLAG:
+        load_queue.append( [ 'value', MAIN_PROFILE, 'value', MAIN_PROFILE ] )
+
+    elif MAIN_PROFILE in ['', '*']:
+        # b) '*' - means load all
+
+        say( "Режим 'Скачать всё'" )
+        if WHAT=='delete':
+            if not util.confirm("Вы действительно хотите удалять все диалоги[y/n]?"):
+                raise OkExit()
+
+        if WHAT not in ['message', 'delete']:
+            ##print "ERROR: For '%s' action -- source have to be defined" % WHAT
+            load_queue.append( ['user', me, None ] )
+        else:
+            vv = vk_api.messages.getDialogs( count = 100, preview_length = 50 )
+            for k in vv[u'items']:
+                if u'chat_id' in k[u'message']:
+                    load_queue.append( ['chat', k[u'message'][u'chat_id'], k[u'message'][u'title'] ] )
+                else:
+                    uid = k[u'message'][u'user_id']
+                    load_queue.append( ['user', k[u'message'][u'user_id'], None ] )
+
+    else:
+        say( "Скачать: %s", MAIN_PROFILE )
+        try:
+             say( "%s", util.str_cp866(MAIN_PROFILE) )      # different encoding
+        except:
+            pass
+
+        # c) load given sequence (  [type1=]value1,[type2=]value2,.. )
+        MAIN_PROFILE = map( lambda a: a.split('=',1), MAIN_PROFILE.split(',') )
+        for p in MAIN_PROFILE:
+            if len(p) < 2:
+                p = ['user', p[0] ]
+            elif p[0].find('vk.com/')>=0:
+                p = ['user', '='.join(p) ]
+            ##print "SPLIT: %s" % str(p)
+            load_queue.append( [p[0].lower(), p[1], '%s_%s'%(p[0].lower(),p[1]) ] )
 
 
 """  PROCESS load_queue """
+def PreprocessLoadQueue():
+    global load_queue
 
-# PARSE FRIENDS AND TRY TO FIND GIVEN NAMES IN IT
-friends = None  # cache of all friends
+    # PARSE FRIENDS AND TRY TO FIND GIVEN NAMES IN IT
+    friends = None  # cache of all friends
 
-for idx in range(0,len(load_queue)):
-   # 0. Add extra entry (potential 'album')
-   load_queue[idx] += [ None ]
+    for idx in range(0,len(load_queue)):
+       # 0. Add extra entry (potential 'album')
+       load_queue[idx] += [ None ]
 
-   # no need to parse specific cases
-   if load_queue[idx][0] in [ 'file','value' ]:
-        continue
-
-   # check id
-   try:
-        v = int(load_queue[idx][1])
-        load_queue[idx][1] = v
-        #say( "DETECTED ID: %s", load_queue[idx][1] )
-   except:
-        #https://vk.com/id101866147
-        name = load_queue[idx][1].strip()
-
-        found = None
-
-        # 1A. parse http address with id
-        match = re.search( "vk\.com/id([0-9]+)$", name )
-        if match:
-            load_queue[idx][1] = int( match.group(1) )
-            #say( "DETECTED vk.com/id: %s", load_queue[idx][1] )
-            continue
-        match = re.search( "vk\.com/((event)|(club))([0-9]+)$", name )
-        if match:
-            load_queue[idx][1] = -int( match.group(4) )
-            #say( "DETECTED vk.com/event: %s", load_queue[idx][1] )
+       # no need to parse specific cases
+       if load_queue[idx][0] in [ 'file','value' ]:
             continue
 
-        # 1B. parse http address for message page
-        match = re.search( "vk\.com/im\?(.+)$", name )
-        if match:
-           id_lst = match.group(1).replace('peers=','').replace('sel=','').replace('&','_').split('_')
-           for idx1 in range(0,len(id_lst)):
-              if (id_lst[idx1][0]=='c'):
-                  cur = ['chat', int(id_lst[idx1][1:]), None, None ]
-              else:
-                  cur = ['user', int(id_lst[idx1]), None, None ]
+       # check id
+       try:
+            v = int(load_queue[idx][1])
+            load_queue[idx][1] = v
+            #say( "DETECTED ID: %s", load_queue[idx][1] )
+       except:
+            #https://vk.com/id101866147
+            name = load_queue[idx][1].strip()
 
-              #say( "DETECTED vk.com/im: %s|%s", [ load_queue[idx][0], load_queue[idx][1] ] )
-              if (idx1!=0):
-                  load_queue.append( cur )
-              else:
-                  load_queue[idx][0] = cur[0]
-                  load_queue[idx][1] = cur[1]
-           continue
+            found = None
+
+            # 1A. parse http address with id
+            match = re.search( "vk\.com/id([0-9]+)$", name )
+            if match:
+                load_queue[idx][1] = int( match.group(1) )
+                #say( "DETECTED vk.com/id: %s", load_queue[idx][1] )
+                continue
+            match = re.search( "vk\.com/((event)|(club))([0-9]+)$", name )
+            if match:
+                load_queue[idx][1] = -int( match.group(4) )
+                #say( "DETECTED vk.com/event: %s", load_queue[idx][1] )
+                continue
+
+            # 1B. parse http address for message page
+            match = re.search( "vk\.com/im\?(.+)$", name )
+            if match:
+               id_lst = match.group(1).replace('peers=','').replace('sel=','').replace('&','_').split('_')
+               for idx1 in range(0,len(id_lst)):
+                  if (id_lst[idx1][0]=='c'):
+                      cur = ['chat', int(id_lst[idx1][1:]), None, None ]
+                  else:
+                      cur = ['user', int(id_lst[idx1]), None, None ]
+
+                  #say( "DETECTED vk.com/im: %s|%s", [ load_queue[idx][0], load_queue[idx][1] ] )
+                  if (idx1!=0):
+                      load_queue.append( cur )
+                  else:
+                      load_queue[idx][0] = cur[0]
+                      load_queue[idx][1] = cur[1]
+               continue
 
 
-        # 1C. parse http address for audio page
-        match = re.search( "vk\.com/audios(-?[0-9]+)(\?album_id=([0-9]+))?$", name )
-        if match:
-            load_queue[idx][1] = int( match.group(1) )
-            if match.group(2) is not None:
-                load_queue[idx][3] = int( match.group(3) )
-            #say( "DETECTED vk.com/audio: %s|%s", [ load_queue[idx][1],load_queue[idx][3] ] )
-            continue
+            # 1C. parse http address for audio page
+            match = re.search( "vk\.com/audios(-?[0-9]+)(\?album_id=([0-9]+))?$", name )
+            if match:
+                load_queue[idx][1] = int( match.group(1) )
+                if match.group(2) is not None:
+                    load_queue[idx][3] = int( match.group(3) )
+                #say( "DETECTED vk.com/audio: %s|%s", [ load_queue[idx][1],load_queue[idx][3] ] )
+                continue
 
-        # 1D. parse http address for photo page
-        match = re.search( "vk\.com/albums?(-?[0-9]+)(_([0-9]+))?$", name )
-        if match:
-            load_queue[idx][1] = int( match.group(1) )
-            if match.group(2)!='':
-                load_queue[idx][3] = int( match.group(3) )
-            #say( "DETECTED vk.com/albums: %s|%s", [ load_queue[idx][1],load_queue[idx][3] ] )
-            continue
+            # 1D. parse http address for photo page
+            match = re.search( "vk\.com/albums?(-?[0-9]+)(_([0-9]+))?$", name )
+            if match:
+                load_queue[idx][1] = int( match.group(1) )
+                if match.group(2)!='':
+                    load_queue[idx][3] = int( match.group(3) )
+                #say( "DETECTED vk.com/albums: %s|%s", [ load_queue[idx][1],load_queue[idx][3] ] )
+                continue
 
-        if friends is None:
-           ##say( "Parse friends" )
-           friends = vk_api.friends.get( fields="uid,first_name,last_name,domain" )[u'items']
-           get_profile( me )
-           friends = friends + [ { u'id':me, u'first_name': str_decode(profiles[me][0]), u'last_name': str_decode(profiles[me][1]) } ]
+            if friends is None:
+               ##say( "Parse friends" )
+               friends = vk_api.friends.get( fields="uid,first_name,last_name,domain" )[u'items']
+               get_profile( me )
+               friends = friends + [ { u'id':me, u'first_name': str_decode(profiles[me][0]), u'last_name': str_decode(profiles[me][1]) } ]
 
-        # 2. parse http address with nickname
-        match = re.search( "vk\.com/(.+)$", name )
-        if match:
-           name1 = match.group(1)
-           for i in friends:
-                if ( name1 in i.get(u'domain','') ):
-                    found = int(i[u'id'])
-                    break
-           if found is None:
-                raise FatalError( unicformat("ОШИБКА: не могу разобрать URL - %s", name ) )
-        if found is not None:
-            load_queue[idx][1] = found
-            #say( "DETECTED BY NICKNAME: %s -> %s", [ name, load_queue[idx][1] ] )
-            continue
-
-        # 3. parse as first/full name
-
-        # make transcoding (to ensure that we are able to process name in any encoding)
-        try:
-           name866 =  str_encode(name,'cp866').decode('cp1251','xmlcharrefreplace').lower()
-        except:
-           name866 =''
-        foundname = None
-        for i in friends:
-           to_find = [ i[u'last_name'].lower(), ("%s %s" %(i[u'first_name'],i[u'last_name'])).lower() ]
-           if ( name866 in to_find ) or ( name.lower() in to_find ):
-                if found is None:
-                    found=int(i[u'id'])
-                    foundname = name866 if ( name866 in to_find ) else str_cp866( name )
-                else:
-                    say( "Обнаружена неоднозначность: id1=%d, id2=%s\n Укажите id или полное имя для разрешения" , (found, i[u'id']) )
-                    say( "%d=%s", (found, make_profiletext(found) ) )
-                    say( "%d=%s", ( int(i[u'id']), make_profiletext(i[u'id']) ) )
-                    raise FatalError()
-        else:
-           # post processing
-           if found is None:
-                try:
-                   say( "НЕ ОБНАРУЖЕНО: %s (%s) - ПРОПУСКАЕМ ЭТО", ( name, name866 ) )  # @tsv -- transcode??
-                except:
-                   say( "НЕ ОБНАРУЖЕНО: ... - ПРОПУСКАЕМ ЭТО" )
-                load_queue[idx][0] = 'skip'
-           else:
+            # 2. parse http address with nickname
+            match = re.search( "vk\.com/(.+)$", name )
+            if match:
+               name1 = match.group(1)
+               for i in friends:
+                    if ( name1 in i.get(u'domain','') ):
+                        found = int(i[u'id'])
+                        break
+               if found is None:
+                    raise FatalError( unicformat("ОШИБКА: не могу разобрать URL - %s", name ) )
+            if found is not None:
                 load_queue[idx][1] = found
-                #say( "DETECTED BY NAME: %s -> %s", (foundname, load_queue[idx][1]) )
+                #say( "DETECTED BY NICKNAME: %s -> %s", [ name, load_queue[idx][1] ] )
+                continue
+
+            # 3. parse as first/full name
+
+            # make transcoding (to ensure that we are able to process name in any encoding)
+            try:
+               name866 =  str_encode(name,'cp866').decode('cp1251','xmlcharrefreplace').lower()
+            except:
+               name866 =''
+            foundname = None
+            for i in friends:
+               to_find = [ i[u'last_name'].lower(), ("%s %s" %(i[u'first_name'],i[u'last_name'])).lower() ]
+               if ( name866 in to_find ) or ( name.lower() in to_find ):
+                    if found is None:
+                        found=int(i[u'id'])
+                        foundname = name866 if ( name866 in to_find ) else str_cp866( name )
+                    else:
+                        say( "Обнаружена неоднозначность: id1=%d, id2=%s\n Укажите id или полное имя для разрешения" , (found, i[u'id']) )
+                        say( "%d=%s", (found, make_profiletext(found) ) )
+                        say( "%d=%s", ( int(i[u'id']), make_profiletext(i[u'id']) ) )
+                        raise FatalError()
+            else:
+               # post processing
+               if found is None:
+                    try:
+                       say( "НЕ ОБНАРУЖЕНО: %s (%s) - ПРОПУСКАЕМ ЭТО", ( name, name866 ) )  # @tsv -- transcode??
+                    except:
+                       say( "НЕ ОБНАРУЖЕНО: ... - ПРОПУСКАЕМ ЭТО" )
+                    load_queue[idx][0] = 'skip'
+               else:
+                    load_queue[idx][1] = found
+                    #say( "DETECTED BY NAME: %s -> %s", (foundname, load_queue[idx][1]) )
 
 
-# BATCH PRELOAD
-preload=[]
-for load in load_queue:
-   if load[0]=='group' or load[1]<0: preload.append(-abs(load[1]))
-   elif load[0]=='user':  preload.append(load[1])
-batch_preload( preload )
+    # BATCH PRELOAD
+    preload=[]
+    for load in load_queue:
+       if load[0]=='group' or load[1]<0: preload.append(-abs(load[1]))
+       elif load[0]=='user':  preload.append(load[1])
+    batch_preload( preload )
 
-# FINALIZE PREPROCESSING
-for idx in range(0,len(load_queue)):
+    # FINALIZE PREPROCESSING
+    for idx in range(0,len(load_queue)):
 
-   # no need to parse specific cases
-   if load_queue[idx][0] in[ 'file','value']:
-        continue
+       # no need to parse specific cases
+       if load_queue[idx][0] in[ 'file','value']:
+            continue
 
-   # 1. negative id means 'group'
-   if load_queue[idx][1]<0:
-        load_queue[idx][0] = 'group'
-   if load_queue[idx][0]=='group' and load_queue[idx][1]>0:
-        load_queue[idx][1] = -load_queue[idx][1]
+       # 1. negative id means 'group'
+       if load_queue[idx][1]<0:
+            load_queue[idx][0] = 'group'
+       if load_queue[idx][0]=='group' and load_queue[idx][1]>0:
+            load_queue[idx][1] = -load_queue[idx][1]
 
-   # 2. fill name
-   if load_queue[idx][0]=='user':
-        load_queue[idx][2]= make_profiletext(load_queue[idx][1])
-   elif load_queue[idx][0]=='group':
-        p = profiles[ get_profile(load_queue[idx][1]) ]
-        load_queue[idx][2]=p[0]
-   elif load_queue[idx][2] is None:
-        load_queue[idx][2] = "%s_%s" % ( load_queue[idx][0], load_queue[idx][1] )
-   #print str(load_queue[idx]).encode('cp866')
+       # 2. fill name
+       if load_queue[idx][0]=='user':
+            load_queue[idx][2]= make_profiletext(load_queue[idx][1])
+       elif load_queue[idx][0]=='group':
+            p = profiles[ get_profile(load_queue[idx][1]) ]
+            load_queue[idx][2]=p[0]
+       elif load_queue[idx][2] is None:
+            load_queue[idx][2] = "%s_%s" % ( load_queue[idx][0], load_queue[idx][1] )
+       #print str(load_queue[idx]).encode('cp866')
 
 
 """
@@ -1134,7 +1174,9 @@ for idx in range(0,len(load_queue)):
 #     ACTION 'restore'                      #
 #############################################
 """
-if RESTORE_FLAG:
+def executeRESTORE( WHAT ):
+    global me, load_queue
+
     if WHAT!='message':
         raise FatalError( "Only 'restore:message' is implemented" )
 
@@ -1197,15 +1239,16 @@ if RESTORE_FLAG:
                             restoredusers.add(int(item[u'user_id']))
                             continue
                         body = item.get(u'body','')
-                        if ( len(body)==12                  #PATTERN: detect123456
+                        if ( len(body)==12                  #PATTERN: 'detect123456' from yourself
                              and body.startswith('detect') ):
                                 todel.append(item[u'id'])
                 except Exception as e:
                     say( "%s", e )
                 restoredlst = []
 
-                # remove all detect messages
-                vk_api.messages.delete( message_ids=','.join(map(lambda s: str(s),todel)) )
+                # remove all auxilary "detect" messages
+                if todel:
+                    vk_api.messages.delete( message_ids=','.join(map(lambda s: str(s),todel)) )
 
                 if not len(datelst):
                     util.print_mark( "(msgid=%d)\n" % id )
@@ -1508,8 +1551,9 @@ def downloadVideo( file_videolist, start_idx ):
 
             try:
                 yvideo.download( path=fullfname, on_progress=pytube.showProgress, silent=True, force_overwrite=True )
+                print
             except IOError:
-                say( "Ошибка записи в файл '%s'", fullfname)
+                say( "\nОшибка записи в файл '%s'", fullfname)
                 raise
 
             VIDEO_LIST_DICT[ line[1] ] = line[2]                                            # map url->saved_file
@@ -1521,7 +1565,9 @@ def downloadVideo( file_videolist, start_idx ):
         if changeFlag:
             util.save_data_file( file_videolist,  VIDEO_LIST )
 
-if WHAT=='video':
+def executeVIDEO():
+    global VIDEO_LIST, VIDEO_LIST_SET, load_queue
+
     VIDEO_LIST, VIDEO_LIST_SET = util.load_data_file( FILE_VIDEO, main_col=2 )
     for load in load_queue:
         if load[0]=='value':
@@ -1548,12 +1594,11 @@ if WHAT=='video':
 
         downloadVideo( FILE_VIDEO, start_video_idx )
 
-    raise OkExit
 
 """
 #############################################
 """
-vk_api.show_blink = True
+#vk_api.show_blink = True
 
 """
 #############################################
@@ -1561,7 +1606,10 @@ vk_api.show_blink = True
 #############################################
 """
 
-if WHAT=='photo':
+def executePHOTO():
+    global MAIN_PROFILE, TGTDIR
+
+
     for load in load_queue:
         if load[0] not in ['user','group']:
             continue
@@ -1624,7 +1672,6 @@ if WHAT=='photo':
                 #count = 110
                 ofs = ofs + step
                 #print answ
-    raise OkExit
 
 """
 #############################################
@@ -1640,17 +1687,22 @@ def _cut_prefix( s ):
         return s[6:]
     return s
 
-SKIP_MP3_LIST, SKIP_MP3_SET = util.load_data_file( FILE_MP3_SKIP, main_col=0 )
-SKIP_MP3_SET = set( map(lambda s: _cut_prefix(s), SKIP_MP3_SET ) )
+
+def PrepareMediaConfigs():
+    global SKIP_MP3_LIST, SKIP_MP3_SET, len_mp3list
+    global VIDEO_LIST, VIDEO_LIST_SET, len_videolist, start_video_idx
+
+    SKIP_MP3_LIST, SKIP_MP3_SET = util.load_data_file( FILE_MP3_SKIP, main_col=0 )
+    SKIP_MP3_SET = set( map(lambda s: _cut_prefix(s), SKIP_MP3_SET ) )
 
 
-#VIDEO_LIST[] = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration ]
-VIDEO_LIST, VIDEO_LIST_SET = util.load_data_file( FILE_VIDEO, main_col=2 )
-##for l in VIDEO_LIST_SET:
-##    say( "%s %s", [type(l),l] )
+    #VIDEO_LIST[] = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration ]
+    VIDEO_LIST, VIDEO_LIST_SET = util.load_data_file( FILE_VIDEO, main_col=2 )
+    ##for l in VIDEO_LIST_SET:
+    ##    say( "%s %s", [type(l),l] )
 
-len_mp3list, len_videolist = len(SKIP_MP3_LIST), len(VIDEO_LIST)
-start_video_idx = len_videolist
+    len_mp3list, len_videolist = len(SKIP_MP3_LIST), len(VIDEO_LIST)
+    start_video_idx = len_videolist
 
 def save_mp3_video():
     global len_mp3list, len_videolist
@@ -1670,7 +1722,8 @@ def save_mp3_video():
 """
 
 # Process MP3 downloading
-if WHAT=='mp3':
+def executeMP3():
+    global MAIN_PROFILE, MP3DIR
 
     for load in load_queue:
         if load[0] not in ['user','group']:
@@ -1702,7 +1755,8 @@ if WHAT=='mp3':
         ##print answ
 
     save_mp3_video()
-    raise OkExit
+
+
 
 """
 ##########################################################
@@ -1710,7 +1764,9 @@ if WHAT=='mp3':
 ##########################################################
 """
 
-if WHAT=='wall':
+def executeWALL():
+    global load_queue, MAIN_PROFILE, IF_DELETE, start_video_idx
+    global list_to_del, messages
 
     say( "\nНастройки сохранения стены:" )
     util.print_vars( ['WALL_QUICKUPDATE', 'DOWNLOAD_AS_HTML', 'LOAD_COMMENTS', 'LOAD_LIKES', 'SEPARATE_TEXT'], CONFIG )
@@ -2027,155 +2083,158 @@ if WHAT=='wall':
         start_video_idx = len_videolist
 
         say()
-    raise OkExit
 
 """
 ###################################################
 #       ACTION 'delete' (delete chat)             #
 ###################################################
 """
-# transform loaded from API messages to form good to investigate
-def load_short_messages( messages ):
-    res = {}
-    for m in messages:
-        id = int(m.get(u'id',0))
-        t = int(m.get(u'date'))
-        who = get_profile( m.get(u'from_id',1) )
 
-        attach = m.get(u'attachments',[])
-        fwd = m.get(u'fwd_messages',[])
+def executeDELETE():
+    global load_queue
 
-        body =  m.get(u'body','')
-        if u'copy_history' in m:
-            attach.append({u'wall':dict(m)})
+    # transform loaded from API messages to form good to investigate
+    def load_short_messages( messages ):
+        res = {}
+        for m in messages:
+            id = int(m.get(u'id',0))
+            t = int(m.get(u'date'))
+            who = get_profile( m.get(u'from_id',1) )
 
-        for f in fwd:
-            if u'user_id' in f:
-                cbody = f.get(u'body','')
-            else:
-                cbody =  str(f)
-            body += '\n' + cbody
-        for a in attach:
-            if u'wall' in a:
-                a = a[u'wall']
-                hist = a.get( u'copy_history', [a] )[0]
-                text = hist.get( u'text', '' )
-                body += '\n' + text
+            attach = m.get(u'attachments',[])
+            fwd = m.get(u'fwd_messages',[])
 
+            body =  m.get(u'body','')
+            if u'copy_history' in m:
+                attach.append({u'wall':dict(m)})
 
-        delFlag = ( m.get(u'read_state',0)!=0       #keep if not readed
-                    and m.get(u'important',0)==0    #     if marked
-                    and len(attach)==0              #     if has attachment
-                    and len(fwd)==0                 #     if it is forwarding
-                    and len(body.strip())!=0 )      #     if empty body
-
-        body = str_encode(body.strip())
-        for [k,v] in repl_ar.iteritems():
-            body = body.replace(k,v)
-        body = str_decode(body)
-        res[id] = [ t, body, delFlag ]
-    return res
-
-
-# NOTE: PRESUMED THAT WE GET BLOCKS OF MESSAGES IN REVERSE ORDER
-def prepare_del( all_messages, control, messages ):
-    messages = load_short_messages( messages[u'items'] )
-
-    # If there are no more messages - just stop
-    if len(messages)==0:
-        return -1
-
-    all_messages.update(messages)
-
-    ##for m in sorted(messages.iterkeys()):
-    ##    say( "%s\t%s", [m, util.str_fulltime(messages[m][0]) ] )
-
-    # we should care about case of border (all prev block match, but none of current match)
-    if control['startid'] is None:
-        # If start from time - then just accumulate all later messages and when find first when stop to accumulate
-        if isinstance(startcond,float):
-            mfiltered = dict( filter( lambda item: item[1][0]>=startcond, messages.items() ) )
-            ##print 'start '+ util.make_join(',',sorted(mfiltered.keys()))
-            control['startlist'] += mfiltered.keys()
-            if len(mfiltered)!=len(messages):
-                if len(control['startlist']):
-                    control['startid'] = min(control['startlist'])  # ok
+            for f in fwd:
+                if u'user_id' in f:
+                    cbody = f.get(u'body','')
                 else:
-                    control['startid'] = -1                         # empty list - noone message starts after starttime
-                ##print 'set startid '+ str(control['startid'])
-
-        # If start by text - then stop at the moment when we found it
-        elif len(startcond):
-            mfiltered = dict( filter( lambda item: item[1][1].lower().find(startcond)>=0, messages.items() ) )
-            if len(mfiltered):
-                control['startid'] = max(mfiltered.keys())
-
-    # we iterate blocks in reverse order, so if we already found stopid - we don't need to check it more
-    if control['stopid'] is None:
-
-        # If stop by time - then find max of from all <=
-        if isinstance(stopcond,float):
-            mfiltered = dict( filter( lambda item: item[1][0]<=stopcond, messages.items() ) )
-            if len(mfiltered):
-                ##print 'stop '+ util.make_join(',',sorted(mfiltered.keys()))
-                control['stopid'] = max(mfiltered.keys())
-                ##print 'set stopid '+ str(control['stopid'])
-
-        # If stop by text - then we get id of any matched
-        elif len(stopcond):
-            mfiltered = dict( filter( lambda item: item[1][1].lower().find(stopcond)>=0, messages.items() ) )
-            if len(mfiltered):
-                control['stopid'] = max(mfiltered.keys())
-    return min(messages.keys())
-
-def prepareinput( value, def_time  ):
-    match = re.match("([0-9]+)\.([0-9]+)\.?([0-9]+)?( +([0-9]+):([0-9]+):?([0-9]+)?)?",value)
-    if match:
-        match = map(lambda g: match.group(g), range(0,7+1))
-        today = time.time()
-        match[3] =  time.strftime("%Y", time.localtime(today)) if match[3] is None else match[3]
-        if match[4] is None:
-            match[5]=def_time[0]
-            match[6]=def_time[1]
-            match[7]=def_time[2]
-        match[7] =  def_time[2] if match[7] is None else match[7]
-        match[4]=0
-        day, month, year, tmp, hour,minutes, sec = map(lambda v: int(v), match[1:])
-        if year <100:
-            year += 1900 if year>50 else 2000
-        t = time.mktime( tuple([year, month, day, hour, minutes, sec, -1, -1, -1]) )
-        say("Ввведено: дата %s", util.str_fulltime(t) )
-        return t
-
-    value = str_decode( value.strip(), 'cp866' )
-    if value:
-        say("Введено: в сообщении должен быть текст \"%s\"", value)
-    else:
-        say("Введено: без ограничений")
-    return value.lower()
-
-def removeMessage( list_to_del ):
-    list_to_del = list(list_to_del)
-    list_to_del.sort()
-    lst = list_to_del
-    batch_size = 100
-    with open( FILE_BAKDEL, "ab" ) as tmpfp:
-        while len(lst) > 0:
-           if len(lst) > batch_size :
-                delids = ','.join( map( lambda s: str(s), lst[0:batch_size] ) )
-                lst = lst[batch_size:]
-           else:
-                delids = ','.join( map( lambda s: str(s), lst ) )
-                lst = []
-           #print "DELETE %s" % str(delids)
-           tmpfp.write( str_encode(delids) + "\n" )
-           tmpfp.flush()
-           vk_api.messages.delete( message_ids=delids )
-           util.print_mark('.')
-        say()
+                    cbody =  str(f)
+                body += '\n' + cbody
+            for a in attach:
+                if u'wall' in a:
+                    a = a[u'wall']
+                    hist = a.get( u'copy_history', [a] )[0]
+                    text = hist.get( u'text', '' )
+                    body += '\n' + text
 
 
-if WHAT=='delete':
+            delFlag = ( m.get(u'read_state',0)!=0       #keep if not readed
+                        and m.get(u'important',0)==0    #     if marked
+                        and len(attach)==0              #     if has attachment
+                        and len(fwd)==0                 #     if it is forwarding
+                        and len(body.strip())!=0 )      #     if empty body
+
+            body = str_encode(body.strip())
+            for [k,v] in repl_ar.iteritems():
+                body = body.replace(k,v)
+            body = str_decode(body)
+            res[id] = [ t, body, delFlag ]
+        return res
+
+
+    # NOTE: PRESUMED THAT WE GET BLOCKS OF MESSAGES IN REVERSE ORDER
+    def prepare_del( all_messages, control, messages ):
+        messages = load_short_messages( messages[u'items'] )
+
+        # If there are no more messages - just stop
+        if len(messages)==0:
+            return -1
+
+        all_messages.update(messages)
+
+        ##for m in sorted(messages.iterkeys()):
+        ##    say( "%s\t%s", [m, util.str_fulltime(messages[m][0]) ] )
+
+        # we should care about case of border (all prev block match, but none of current match)
+        if control['startid'] is None:
+            # If start from time - then just accumulate all later messages and when find first when stop to accumulate
+            if isinstance(startcond,float):
+                mfiltered = dict( filter( lambda item: item[1][0]>=startcond, messages.items() ) )
+                ##print 'start '+ util.make_join(',',sorted(mfiltered.keys()))
+                control['startlist'] += mfiltered.keys()
+                if len(mfiltered)!=len(messages):
+                    if len(control['startlist']):
+                        control['startid'] = min(control['startlist'])  # ok
+                    else:
+                        control['startid'] = -1                         # empty list - noone message starts after starttime
+                    ##print 'set startid '+ str(control['startid'])
+
+            # If start by text - then stop at the moment when we found it
+            elif len(startcond):
+                mfiltered = dict( filter( lambda item: item[1][1].lower().find(startcond)>=0, messages.items() ) )
+                if len(mfiltered):
+                    control['startid'] = max(mfiltered.keys())
+
+        # we iterate blocks in reverse order, so if we already found stopid - we don't need to check it more
+        if control['stopid'] is None:
+
+            # If stop by time - then find max of from all <=
+            if isinstance(stopcond,float):
+                mfiltered = dict( filter( lambda item: item[1][0]<=stopcond, messages.items() ) )
+                if len(mfiltered):
+                    ##print 'stop '+ util.make_join(',',sorted(mfiltered.keys()))
+                    control['stopid'] = max(mfiltered.keys())
+                    ##print 'set stopid '+ str(control['stopid'])
+
+            # If stop by text - then we get id of any matched
+            elif len(stopcond):
+                mfiltered = dict( filter( lambda item: item[1][1].lower().find(stopcond)>=0, messages.items() ) )
+                if len(mfiltered):
+                    control['stopid'] = max(mfiltered.keys())
+        return min(messages.keys())
+
+    def prepareinput( value, def_time  ):
+        match = re.match("([0-9]+)\.([0-9]+)\.?([0-9]+)?( +([0-9]+):([0-9]+):?([0-9]+)?)?",value)
+        if match:
+            match = map(lambda g: match.group(g), range(0,7+1))
+            today = time.time()
+            match[3] =  time.strftime("%Y", time.localtime(today)) if match[3] is None else match[3]
+            if match[4] is None:
+                match[5]=def_time[0]
+                match[6]=def_time[1]
+                match[7]=def_time[2]
+            match[7] =  def_time[2] if match[7] is None else match[7]
+            match[4]=0
+            day, month, year, tmp, hour,minutes, sec = map(lambda v: int(v), match[1:])
+            if year <100:
+                year += 1900 if year>50 else 2000
+            t = time.mktime( tuple([year, month, day, hour, minutes, sec, -1, -1, -1]) )
+            say("Ввведено: дата %s", util.str_fulltime(t) )
+            return t
+
+        value = str_decode( value.strip(), 'cp866' )
+        if value:
+            say("Введено: в сообщении должен быть текст \"%s\"", value)
+        else:
+            say("Введено: без ограничений")
+        return value.lower()
+
+    def removeMessage( list_to_del ):
+        list_to_del = list(list_to_del)
+        list_to_del.sort()
+        lst = list_to_del
+        batch_size = 100
+        with open( FILE_BAKDEL, "ab" ) as tmpfp:
+            while len(lst) > 0:
+               if len(lst) > batch_size :
+                    delids = ','.join( map( lambda s: str(s), lst[0:batch_size] ) )
+                    lst = lst[batch_size:]
+               else:
+                    delids = ','.join( map( lambda s: str(s), lst ) )
+                    lst = []
+               #print "DELETE %s" % str(delids)
+               tmpfp.write( str_encode(delids) + "\n" )
+               tmpfp.flush()
+               vk_api.messages.delete( message_ids=delids )
+               util.print_mark('.')
+            say()
+
+
+
     for load in load_queue:
         # PREPARE AND PRINT NAME
         if load[0]=='user':
@@ -2234,8 +2293,6 @@ if WHAT=='delete':
         removeMessage( id_list )
 
 
-    raise OkExit()
-
 
 """
 ###################################################
@@ -2243,165 +2300,172 @@ if WHAT=='delete':
 ###################################################
 """
 
-if WHAT!='message':
-    raise FatalError( unicformat("Действие '%s' еще не обрабатывается", WHAT ) )
 
-#Load current:
-#    profile_id = stop_id, lastdeleted_id, last_msg_time
-##say( "Load last messages ids" )
-msg_util_val = util.load_dict_file( FILE_MAIN, key_sep='=', val_sep=',' )
-for id, values in msg_util_val.iteritems():
-    values += [0,0,0]
-    stop_id[id] = int(values[0])
-    lastdel_id[id] = min( [ stop_id[id], int(values[1]) ] )
-    last_times[id] = int(values[2])
+def executeMESSAGE():
+    global MAIN_PROFILE, load_queue
+    global stop_id, lastdel_id, last_times
+    global list_to_del, messages, start_video_idx, IF_DELETE
+
+    #Load current:
+    #    profile_id = stop_id, lastdeleted_id, last_msg_time
+    ##say( "Load last messages ids" )
+    msg_util_val = util.load_dict_file( FILE_MAIN, key_sep='=', val_sep=',' )
+    for id, values in msg_util_val.iteritems():
+        values += [0,0,0]
+        stop_id[id] = int(values[0])
+        lastdel_id[id] = min( [ stop_id[id], int(values[1]) ] )
+        last_times[id] = int(values[2])
 
 
-# # If nothing was stored - at least 200 days
-#if not os.path.exists( FILE_STORED ):
-#	stop_id[MAIN_PROFILE] = 0
-#	DAYSBEFORE = max( DAYSBEFORE, 200 )
-# stoptime =
+    # # If nothing was stored - at least 200 days
+    #if not os.path.exists( FILE_STORED ):
+    #	stop_id[MAIN_PROFILE] = 0
+    #	DAYSBEFORE = max( DAYSBEFORE, 200 )
+    # stoptime =
 
-# Process MESSAGE downloading
-for load in load_queue:
-        # PREPARE AND PRINT NAME
-        if load[0]=='user':
-                load[2]=make_profiletext(load[1])
-                name = load[2]
-        elif load[0]=='chat':
-                name = unicformat("чата '%s'", load[2] )
-        else:
-                continue
-        say( "\nСкачиваем сообщения  %s {%s}", (name, load[1]) )
+    # Process MESSAGE downloading
+    for load in load_queue:
 
-        IF_DELETE = IF_DELETE_GLOBAL
-        if IF_DELETE is None:
-                IF_DELETE = util.confirm( "Вы хотите удалить скачанные сообщения[y/n]? " )
-                IF_DELETE = 1 if IF_DELETE else -1
-        if IF_DELETE>0:
-                say( "Сообщения будут удалены после скачивания" )
-        elif IF_DELETE<0:
-                say( "Сообщения останутся после скачивания" )
-        else:
-                say( "Сообщения останутся после скачивания, но будут удалены после следующего скачивания с удалением" )
-
-        # INIT AUX ARRAYS
-        list_to_del = []        # []            = [id_to_del, id_to_del,..]
-        messages = {}           # [msgid]     = [time, who, body]
-
-        # DOWNLOAD MESSAGES
-        kw = { ("%s_id" % load[0]) : load[1] }
-        init_dirs( objtype=load[0], objid=load[1], objname=load[2] )
-
-        stop_id[MAIN_PROFILE] = stop_id.get(MAIN_PROFILE,0)
-        lastdel_id[MAIN_PROFILE] = lastdel_id.get(MAIN_PROFILE,0)
-        last_times[MAIN_PROFILE] = last_times.get(MAIN_PROFILE,0)
-        say( "stop=%s, del=%s " % (stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]) )
-
-        id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
-        while id > 0:
-            id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
-        say()
-
-        if IF_DELETE==0:
-            list_to_del = []
-
-        if len(messages)==0 and len(list_to_del)==0:
-            continue
-
-        # WRITE TO TGT FILE --> only text is supported now
-        TGT_FILE = '%s/%s_%s.txt' % ( BASEDIR, MAIN_PROFILE, load[2] )
-        firstTimeFlag = not os.path.exists(TGT_FILE)
-        tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_BINARY )
-        if not tmpfp:
-            raise FatalError( unicformat("Ошибка открытия файла сообщений %s", TGT_FILE ) )
-        if firstTimeFlag:
-                os.write( tmpfp, load[2] )
-                os.write( tmpfp, "\n\n")
-
-        prev = [ last_times[MAIN_PROFILE], 0, '']
-
-        keys = messages.keys()
-        keys.sort()
-        stored = []
-        for k in keys:
-            v = messages[k]
-            ##print "%s => %s" % (k,str(v))
-            if stop_id[MAIN_PROFILE] >= k:
-                ##prev = v
-                continue
-            stored.append( k )
-            last_times[MAIN_PROFILE] = max( last_times[MAIN_PROFILE], v[0] )
-            t = time.localtime(v[0])
-            p = time.localtime(prev[0])
-            cross = (t.tm_year!=p.tm_year or t.tm_yday!=p.tm_yday )
-            ##print "%s/%s %s/%s" %(t.tm_year,p.tm_year,t.tm_yday,p.tm_yday )
-            if cross:
-                timestr = time.strftime("%d.%m.%y", t )
-                timestr = "%s (%s) " % (timestr,DAYS[t.tm_wday].encode(util.baseencode,'xmlcharrefreplace'))
-                os.write( tmpfp, "\n===== %s\n\n" % timestr )
-
-            if CONFIG['WRITE_MSGID']:
-                os.write( tmpfp, "%s\n" % k )
-            body = v[2].split('\n')
-            how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
-            body = ("\r\n%s" % how_many_t).join(body)
-            if abs(v[0]-prev[0]) > 10*60 or v[1]!=prev[1]:
-                timestr = time.strftime("%H:%M",t)
-                if load[0]=='chat':
-                    who = "%-10s" % profiles[ v[1] ][1]
-                else:
-                    who = profiles[ v[1] ][0]
-                os.write( tmpfp, "%s %s\t" % (timestr,who) )
+            # 1. PREPARE AND PRINT NAME
+            if load[0]=='user':
+                    load[2]=make_profiletext(load[1])
+                    name = load[2]
+            elif load[0]=='chat':
+                    name = unicformat("чата '%s'", load[2] )
             else:
-                body = how_many_t + body
+                    continue
+            say( "\nСкачиваем сообщения  %s {%s}", (name, load[1]) )
 
-            os.write( tmpfp, body + "\r\n" )
+            IF_DELETE = IF_DELETE_GLOBAL
+            if IF_DELETE is None:
+                    IF_DELETE = util.confirm( "Вы хотите удалить скачанные сообщения[y/n]? " )
+                    IF_DELETE = 1 if IF_DELETE else -1
+            if IF_DELETE>0:
+                    say( "Сообщения будут удалены после скачивания" )
+            elif IF_DELETE<0:
+                    say( "Сообщения останутся после скачивания" )
+            else:
+                    say( "Сообщения останутся после скачивания, но будут удалены после следующего скачивания с удалением" )
 
-            prev = v
-        os.close(tmpfp)
+            # 2. INIT AUX ARRAYS
+            list_to_del = []        # []            = [id_to_del, id_to_del,..]
+            messages = {}           # [msgid]     = [time, who, body]
 
-        ##print "Remember stored"
-        storedids = ','.join( map( lambda s: str(s), stored ) )
-        with open(FILE_STORED, "ab") as tmpfp:
-            ##print messages
-            prev = ''
-            for id in storedids.split(','):
-                if id=='': continue
-                tmpfp.write( id.encode('ascii','xmlcharrefreplace') )
-                v = messages[int(id)]
+            # 3. DOWNLOAD MESSAGES
+            kw = { ("%s_id" % load[0]) : load[1] }
+            init_dirs( objtype=load[0], objid=load[1], objname=load[2] )
+
+            stop_id[MAIN_PROFILE] = stop_id.get(MAIN_PROFILE,0)
+            lastdel_id[MAIN_PROFILE] = lastdel_id.get(MAIN_PROFILE,0)
+            last_times[MAIN_PROFILE] = last_times.get(MAIN_PROFILE,0)
+            say( "stop=%s, del=%s " % (stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]) )
+
+            id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
+            while id > 0:
+                id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
+            say()
+
+            if IF_DELETE==0:
+                list_to_del = []
+
+            if len(messages)==0 and len(list_to_del)==0:
+                continue
+
+            # 4. WRITE TO TGT FILE --> only text is supported now
+            TGT_FILE = '%s/%s_%s.txt' % ( BASEDIR, MAIN_PROFILE, load[2] )
+            firstTimeFlag = not os.path.exists(TGT_FILE)
+            tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_BINARY )
+            if not tmpfp:
+                raise FatalError( unicformat("Ошибка открытия файла сообщений %s", TGT_FILE ) )
+            if firstTimeFlag:
+                    os.write( tmpfp, load[2] )
+                    os.write( tmpfp, "\n\n")
+
+            prev = [ last_times[MAIN_PROFILE], 0, '']
+
+            keys = messages.keys()
+            keys.sort()
+            stored = []
+            for k in keys:
+                v = messages[k]
+                ##print "%s => %s" % (k,str(v))
+                if stop_id[MAIN_PROFILE] >= k:
+                    ##prev = v
+                    continue
+                stored.append( k )
+                last_times[MAIN_PROFILE] = max( last_times[MAIN_PROFILE], v[0] )
                 t = time.localtime(v[0])
-                datestr = time.strftime(" %d.%m.%y", t )
-                timestr = time.strftime("%H%M", t )
-                tmpfp.write( "| %s%s%s%s\n" % ('>' if v[1]==me else '<',
-                                                 timestr,
-                                                 '' if datestr==prev else datestr,
-                                                 ' *' if len(v[2].split('\n'))>1 else '' ) )
-                prev = datestr
-            tmpfp.write( str_encode(storedids) )
+                p = time.localtime(prev[0])
+                cross = (t.tm_year!=p.tm_year or t.tm_yday!=p.tm_yday )
+                ##print "%s/%s %s/%s" %(t.tm_year,p.tm_year,t.tm_yday,p.tm_yday )
+                if cross:
+                    timestr = time.strftime("%d.%m.%y", t )
+                    timestr = "%s (%s) " % (timestr,str_encode(DAYS[t.tm_wday]))
+                    os.write( tmpfp, "\n===== %s\n\n" % timestr )
 
-        # PURGE MESSAGES
-        purged_cnt = 0
-        ##print list_to_del
-        if IF_DELETE>0 and len(list_to_del)>0:
-            say( "Удаляем сообщения" )
-            say( "  minid=%d, maxid=%d", [min(list_to_del), max(list_to_del)])
-            purged_cnt = len(list_to_del)
-            removeMessage( list_to_del )
+                if CONFIG['WRITE_MSGID']:
+                    os.write( tmpfp, "%s\n" % k )
+                body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
+                how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
+                body = ("\r\n%s" % how_many_t).join(body)
+                if abs(v[0]-prev[0]) > 10*60 or v[1]!=prev[1]:
+                    timestr = time.strftime("%H:%M",t)
+                    if load[0]=='chat':
+                        who = "%-10s" % profiles[ v[1] ][1]
+                    else:
+                        who = profiles[ v[1] ][0]
+                    os.write( tmpfp, "%s %s\t" % (timestr,who) )
+                else:
+                    body = how_many_t + body
 
-        #print "Remember last message"
-        stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
-        lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
+                os.write( tmpfp, body + "\r\n" )
 
-        with codecs.open(FILE_MAIN,'w','utf-8') as f:
-        #with open(FILE_MAIN,"w") as f:
-            for [id,stop] in stop_id.iteritems():
-                f.write( "%s=%s,%s,%s,%s\n" % ( id, stop, lastdel_id.get(id,0), last_times.get(id,0), str_decode(make_profiletext(id.split('_')[1]))) )
+                prev = v
+            os.close(tmpfp)
 
-        say( "Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
+            # 5. Remember index of stored messages (debug purpose)
+            ##print "Remember stored"
+            storedids = ','.join( map( lambda s: str(s), stored ) )
+            with open(FILE_STORED, "ab") as tmpfp:
+                ##print messages
+                prev = ''
+                for id in storedids.split(','):
+                    if id=='': continue
+                    tmpfp.write( id.encode('ascii','xmlcharrefreplace') )
+                    v = messages[int(id)]
+                    t = time.localtime(v[0])
+                    datestr = time.strftime(" %d.%m.%y", t )
+                    timestr = time.strftime("%H%M", t )
+                    tmpfp.write( "| %s%s%s%s\n" % ('>' if v[1]==me else '<',
+                                                     timestr,
+                                                     '' if datestr==prev else datestr,
+                                                     ' *' if len(v[2].split('\n'))>1 else '' ) )
+                    prev = datestr
+                tmpfp.write( str_encode(storedids) )
 
-        # Save MP3 and video LIST
-        save_mp3_video()
-        downloadVideo( FILE_VIDEO, start_video_idx )
-        start_video_idx = len_videolist
+            # 6. PURGE MESSAGES
+            purged_cnt = 0
+            ##print list_to_del
+            if IF_DELETE>0 and len(list_to_del)>0:
+                say( "Удаляем сообщения" )
+                say( "  minid=%d, maxid=%d", [min(list_to_del), max(list_to_del)])
+                purged_cnt = len(list_to_del)
+                removeMessage( list_to_del )
+
+            # 7. Remember new borders
+
+            #print "Remember last message"
+            stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
+            lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
+
+            with codecs.open(FILE_MAIN,'w','utf-8') as f:
+            #with open(FILE_MAIN,"w") as f:
+                for [id,stop] in stop_id.iteritems():
+                    f.write( "%s=%s,%s,%s,%s\n" % ( id, stop, lastdel_id.get(id,0), last_times.get(id,0), str_decode(make_profiletext(id.split('_')[1]))) )
+
+            say( "Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
+
+            # 8. Save MP3 and video LIST
+            save_mp3_video()
+            downloadVideo( FILE_VIDEO, start_video_idx )
+            start_video_idx = len_videolist
