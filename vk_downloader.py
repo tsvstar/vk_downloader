@@ -23,6 +23,7 @@ try:
     sysargv = util.getSysArgv()
     ARGV = util.getWinSysArgv()
 
+
     # ..do any util.sysargv/ARGV changes here
     #
 
@@ -42,7 +43,7 @@ try:
     myvk.PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE )
     myvk.PreprocessLoadQueue()
     if RESTORE_FLAG:
-        myvk.executeRESTORE( WHAT )
+        myvk.executeRESTORE( WHAT, RESTORE_FLAG )
     elif WHAT=='video':
         myvk.executeVIDEO()
     elif WHAT=='photo':

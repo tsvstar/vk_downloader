@@ -2,7 +2,8 @@
 
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]
 
-#TODO: ?WAIT_AFTER (need to exclude exceptions, otherwise this module will be None)
+# WHY IF I GIVE VIDEO FROM CLOSED GROUP IT DON'T KNOW ABOUT ITS NAME AND THINK 0_00
+
 #      +message: squeeze: '  '->' '
 #      create/use __msg_all.last.bak
 #      multithreaded dload(?)
@@ -11,6 +12,7 @@
 # why dloader do not see 480p? (for example -- https://www.youtube.com/watch?v=8EaQZnq1R1Q ) -- looks like it is segmented
 #  -->  + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676367305285&ip=46.164.135.35&key=yt5&itag=140&mime=audio%2Fmp4&keepalive=yes&clen=7290578&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=154BA0F13BBCABCB9FDFE876AF450804EE93446B.9F54E30B4BD872A0E887649B963FE13AEDD6EEEB&pl=22&mm=31&dur=454.089&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&type=audio/mp4;+codecs="mp4a.40.2"&index=592-1175&bitrate=129645&init=0-591&
 #       + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676376236216&ip=46.164.135.35&key=yt5&itag=135&mime=video%2Fmp4&keepalive=yes&clen=6460073&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=7F632C563F0569E34285FF2CBA466B3B869854A2.86D712EDC84F694A70F725436D4E8DC5252B79CC&pl=22&mm=31&dur=453.968&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&init=0-709&fps=30&size=804x480&type=video/mp4;+codecs="avc1.4d401f"&index=710-1833&bitrate=297257&
+# AGAIN can't decrypt:: http://youtu.be/nYwe_WHARdc
 
 
 import os, time, base64, re, codecs, random     #, pickle,urllib
@@ -31,7 +33,7 @@ dflt_config = {
     'DOWNLOAD_VIDEO':    True,      # Store video for later download
     'VIDEO_MAX_SIZE':    500,       # Maximum resolution to download
     'DAYSBEFORE':        700,       # How deeply load history
-    'IF_DELETE':         None,      # Delete messages: None - ask, False/True - delete or not
+    'IF_DELETE':         None,      # Delete messages: None - ask, 1-delete, -1=keep_and_do_not_delete, 0=keep_but_delete_later
     'DOWNLOAD_MP3':      True,      # True = download mp3 in messages/wall
     'DOWNLOAD_MP3_ONCE': True,      # True - if mp3 was dloaded then remember and do not download even if it was deleted locally {REMEMBER_SKIP_MP3}
     'SKIP_EXISTED_FILE': True,      # If img/media exists then do not update it
@@ -46,15 +48,16 @@ dflt_config = {
     'SEPARATE_MEDIA':    'month',   # How to separate media [None|day|month|year|id]
 
     'WALL_QUICKUPDATE':  True,      # If True update existed wall records only if like/comment count was changed            !!!TODO
+    'WALL_DEDUPE':       False,     # if True - check for existance (by preview) of same post and exclude(comment out) it
+    'WALL_HIDE_ONLY_IMAGE': False,  # if True - comment out messages with no body and only images
 
     'SKIP_AUTH_TOKEN':   False,     # Do not authenticate using AUTH TOKEN
     #'CONSOLE_SIZE':      '80:25',  # line/width
     'CONSOLE_SIZE':      '100:35',  # line/width
-    'WALL_DEDUPE':       False,     # if True - check for existance (by preview) of same post and exclude(comment out) it
-    'WALL_HIDE_ONLY_IMAGE': False,  # if True - comment out messages with no body and only images
     'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
     'SECONDARY_PWD_ENC':  '',       #
     'WAIT_AFTER':       True,       # If False - do not wait after finish the script
+    "MACHINE":          False,      # If True - say in machine format
 }
 
 
@@ -204,6 +207,7 @@ def InitializeDir( USER_LOGIN, WHAT ):
 
     # Copy locals to this module globals (just do not declare them
     util.import_vars( globals(), locals(), '*', isOverwrite=True )
+    globals()['USER_LOGIN'] = USER_LOGIN
 
 
 
@@ -249,12 +253,14 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#9996;": "*V* ",
                 "&#55356;&#57118;": "*SUN* ",
                 "&#55357;&#56876;": ":-E ",
+                "&#55357;&#56865;": "*ANGRY* ",
                 "&#55357;&#56869;": ":`( ",
                 "&#55357;&#56850;": "*SAD* ",
                 "&#55357;&#56878;": ":-O ",
                 "&#55357;&#56399;": "*APPLAUSE* ",
                 "&#55357;&#56834;": ":``)",
                 "&#55357;&#56387;": "*NOSE* ",
+                "&#55357;&#56833;": ":( ",
 
                 "&#55357;&#56841;": ";) ",
                 "&#55357;&#56397;": "*THUMB UP* ",
@@ -612,7 +618,7 @@ def parse_attachment( attach, pre, html = False ):
 
 
 #  GET MESSAGES
-def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None ):
+def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None ):
     global CURMSG_TIME
 
     # set defaults
@@ -891,8 +897,11 @@ def executeAsk():
 
    url = 'smt'
    if RESTORE_FLAG:
-        if not util.confirm('Восстановить всё за последние несколько часов[y/n]?'):
-            raise OkExit('Отмена действия')
+        RESTORE_FLAG = util.make_int( util.getinput("За сколько последних минут скачивать?").strip() )
+        if RESTORE_FLAG<=0:
+            RESTORE_FLAG = 25*60
+        #if not util.confirm('Восстановить всё за последние несколько часов[y/n]?'):
+        #    raise OkExit('Отмена действия')
         url = ''
         MAIN_PROFILE=''
 
@@ -993,11 +1002,12 @@ def PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE ):
                     load_queue.append( ['user', k[u'message'][u'user_id'], None ] )
 
     else:
-        say( "Скачать: %s", MAIN_PROFILE )
-        try:
-             say( "%s", util.str_cp866(MAIN_PROFILE) )      # different encoding
-        except:
-            pass
+        if not CONFIG.get('MACHINE',False):
+            say( "Скачать: %s", MAIN_PROFILE )
+            try:
+                 say( "%s", util.str_cp866(MAIN_PROFILE) )      # different encoding
+            except:
+                pass
 
         # c) load given sequence (  [type1=]value1,[type2=]value2,.. )
         MAIN_PROFILE = map( lambda a: a.split('=',1), MAIN_PROFILE.split(',') )
@@ -1174,7 +1184,7 @@ def PreprocessLoadQueue():
 #     ACTION 'restore'                      #
 #############################################
 """
-def executeRESTORE( WHAT ):
+def executeRESTORE( WHAT, RESTORE_FLAG ):
     global me, load_queue
 
     if WHAT!='message':
@@ -1187,7 +1197,7 @@ def executeRESTORE( WHAT ):
         load_objtype, load_objid, load_objname, load_value = load[:4]
 
         if load_value in ['', '*']:
-            load_value = '-1000'
+            load_value = '-2000'
 
         to_restore = []
         for l in load_value.splitlines():
@@ -1204,30 +1214,29 @@ def executeRESTORE( WHAT ):
         min_id = min(to_restore)
         # If negative value given (or *) - detect last message id and try to restore last N messages
         if min_id < 0:
-             msg_id = vk_api.messages.send( user_id=int(me), message='detect%06d' % random.randint(0,999999) )
-             vk_api.messages.delete( message_ids=msg_id )
+             last_msg = vk_api.messages.get(count=1)[u'items']
+             if not len(last_msg):
+                #AGRESSIVE DETECT OF LAST MESSAGE
+                msg_id = vk_api.messages.send( user_id=int(me), message='detect%06d' % random.randint(0,999999) )
+                vk_api.messages.delete( message_ids=msg_id )
+             else:
+                # GENTLY DETECT OF LAST MESSAGE(scan up from last until date==0)
+                BLOCK_SIZE = 50
+                msg_id = last_msg[0][u'id']+1
+                while True:
+                    ids = ','.join( map( str, range(msg_id, msg_id+BLOCK_SIZE+1) ) )
+                    msg = vk_api.messages.getById(message_ids=ids)[u'items']
+                    msg = filter(lambda item: item[u'date']<=0, msg)
+                    if len(msg):
+                        msg = map(lambda item: item[u'id'],msg)
+                        msg_id = min(msg)
+                        break
              to_restore += range( msg_id+min_id, msg_id )
-
 
         to_restore = set( filter(lambda v: v>0, to_restore) )
 
-        say( "\nВосстанавливаем сообщения (%d записей)", len(to_restore) )
-        idx = 0
-        BLOCK_SIZE = 50
-        restoredlst = []
-        restoredusers = set()
-        for id in reversed( sorted( to_restore ) ):
-            try:
-                vk_api.messages.restore( message_id = id )
-                restoredlst.append(id)
-                util.print_mark(".")
-            except vk.api.VkAPIMethodError as e:
-                util.print_mark("?")
-                #print e
-            finally:
-                idx += 1
-
-            if idx%BLOCK_SIZE == 0:
+        # function to finalize Block
+        def restorePostBlockJob( id, restoredlst, restoredusers ):
                 datelst = []
                 todel = []
                 try:
@@ -1235,29 +1244,86 @@ def executeRESTORE( WHAT ):
                     msglst = vk_api.messages.getById( preview_length=20, message_ids = ','.join(restored_str_lst) )[u'items']
                     datelst = map(lambda item: item[u'date'], msglst)
                     for item in msglst:
-                        if item[u'user_id']!=me:
+                        if str(item[u'id']) not in restoredlst:
+                            continue
+                        if (now - item[u'date'])>RESTORE_FLAG*60:       # delete again message which are out of given range
+                            todel.append(item[u'id'])
+                            continue
+                        ##util.print_mark("[%d]"%(now - item[u'date']))
+                        if item[u'user_id']!=me:                        # ..mark restored users
                             restoredusers.add(int(item[u'user_id']))
                             continue
-                        body = item.get(u'body','')
-                        if ( len(body)==12                  #PATTERN: 'detect123456' from yourself
+                        body = item.get(u'body','').lower()
+                        if ( len(body)==12                              # delete again message with PATTERN: 'detect123456' from yourself
                              and body.startswith('detect') ):
                                 todel.append(item[u'id'])
+                        elif ( body[:8] in ['groupvk=','reportvk',      # delete again auxilary commands and report of group
+                                                'vk_clean','vk_store'] ):
+                                todel.append(item[u'id'])
+                        else:
+                            restoredusers.add(int(item[u'user_id']))
+
                 except Exception as e:
                     say( "%s", e )
-                restoredlst = []
 
                 # remove all auxilary "detect" messages
                 if todel:
+                    util.print_mark("{@tsv_delaux:%s}"%','.join(map(lambda s: str(s),todel)))
                     vk_api.messages.delete( message_ids=','.join(map(lambda s: str(s),todel)) )
 
                 if not len(datelst):
                     util.print_mark( "(msgid=%d)\n" % id )
+                    return None
                 else:
                     d = min(datelst)
+                    ##util.print_mark("[%d]/%s"%(now - d,RESTORE_FLAG*60))
                     util.print_mark( "(msgid=%d) %s\n" % ( id, time.strftime("%d.%m.%y %H:%M", time.localtime(d)) ) )
-                    if ( time.time() - d ) > 24*3600:
-                        say( "Восстановление завершено - остаток записей имеет возраст более одного дня и не может быть восстановлен" )
-                        break
+                    return d
+
+        say( "\nВосстанавливаем сообщения (%d записей)", len(to_restore) )
+        idx = 0
+        BLOCK_SIZE = 50
+        restoredlst = []
+        restoredusers = set()
+        now = time.time()
+        for id in reversed( sorted( to_restore ) ):
+            # a) BLOCK PRE-JOB (find existed to ignore id)
+            if idx%BLOCK_SIZE == 0:
+                msgids = ','.join(map(str,range(id-BLOCK_SIZE-1,id+1)))
+                msglst = vk_api.messages.getById( preview_length=1, message_ids = msgids )[u'items']
+                msg = filter( lambda item: item[u'date']<=0 or not item.get(u'deleted',0), msglst )
+                to_ignore = set( map(lambda item: item[u'id'], msg) )
+                ##print "@tsv_to_ignore", to_ignore
+
+            # b) MAIN JOB
+            try:
+                if id in to_ignore:
+                    util.print_mark("-")
+                else:
+                    vk_api.messages.restore( message_id = id )
+                    restoredlst.append(id)
+                    util.print_mark(".")
+            except vk.api.VkAPIMethodError as e:
+                util.print_mark("?")
+                #print e
+            finally:
+                idx += 1
+
+            # c) POST-BLOCK JOB: mark restored users, remove auxilary, print output
+            if idx%BLOCK_SIZE == 0:
+                d = restorePostBlockJob( id, restoredlst, restoredusers )
+                restoredlst = []
+
+                if d is None:
+                    continue
+                if ( now - d ) > RESTORE_FLAG*60:
+                    say( "Восстановление завершено - остаток записей имеет возраст больше %d минут" % RESTORE_FLAG )
+                    break
+                ##if ( now - d ) > 24*3600:
+                ##    say( "Восстановление завершено - остаток записей имеет возраст более одного дня и не может быть восстановлен" )
+                ##    break
+
+        restorePostBlockJob( id, restoredlst, restoredusers )
 
         restoredusers = map( lambda v: make_profiletext(v), restoredusers )
         say( "Восстановлены сообщения для: %s", ', '.join(restoredusers) )
@@ -1767,6 +1833,7 @@ def executeMP3():
 def executeWALL():
     global load_queue, MAIN_PROFILE, IF_DELETE, start_video_idx
     global list_to_del, messages
+    global cacheHandler, MSG_CACHE, MSG_CACHE_FILES
 
     say( "\nНастройки сохранения стены:" )
     util.print_vars( ['WALL_QUICKUPDATE', 'DOWNLOAD_AS_HTML', 'LOAD_COMMENTS', 'LOAD_LIKES', 'SEPARATE_TEXT'], CONFIG )
@@ -2064,7 +2131,7 @@ def executeWALL():
             batch_preload( preload )
 
             if isHTML and CONFIG['WALL_QUICKUPDATE']:
-                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler )
+                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler )
             else:
                 get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML )
 
@@ -2359,6 +2426,7 @@ def executeMESSAGE():
             last_times[MAIN_PROFILE] = last_times.get(MAIN_PROFILE,0)
             say( "stop=%s, del=%s " % (stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]) )
 
+            lastdel_time, stopmsg_time = 0,0
             id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
             while id > 0:
                 id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
@@ -2387,13 +2455,15 @@ def executeMESSAGE():
             stored = []
             for k in keys:
                 v = messages[k]
+                t = time.localtime(v[0])
+                if not len(stored):
+                    stopmsg_time = time.strftime("%d.%m.%y %H:%M", t )
                 ##print "%s => %s" % (k,str(v))
                 if stop_id[MAIN_PROFILE] >= k:
                     ##prev = v
                     continue
                 stored.append( k )
                 last_times[MAIN_PROFILE] = max( last_times[MAIN_PROFILE], v[0] )
-                t = time.localtime(v[0])
                 p = time.localtime(prev[0])
                 cross = (t.tm_year!=p.tm_year or t.tm_yday!=p.tm_yday )
                 ##print "%s/%s %s/%s" %(t.tm_year,p.tm_year,t.tm_yday,p.tm_yday )
@@ -2444,6 +2514,17 @@ def executeMESSAGE():
 
             # 6. PURGE MESSAGES
             purged_cnt = 0
+            if len(list_to_del):
+                first = sorted(list_to_del)[0]
+                v = messages[int(first)]
+                t = time.localtime(v[0])
+                lastdel_time = time.strftime("%d.%m.%y %H:%M",t )
+            else:
+                res = vk_api.messages.getById(message_ids=lastdel_id[MAIN_PROFILE])
+                if len(res[u'items']):
+                    t = time.localtime(res[u'items'][0][u'date'])
+                    lastdel_time = time.strftime("after %d.%m.%y %H:%M",t )
+
             ##print list_to_del
             if IF_DELETE>0 and len(list_to_del)>0:
                 say( "Удаляем сообщения" )
@@ -2451,7 +2532,44 @@ def executeMESSAGE():
                 purged_cnt = len(list_to_del)
                 removeMessage( list_to_del )
 
-            # 7. Remember new borders
+
+            #7. Log
+            if IF_DELETE>0:   mode="del"
+            elif IF_DELETE<0: mode="keep"
+            else:             mode="postponed"
+            logmsg= "mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), postponed%d" % ( mode,
+                                                                                len(stored), stopmsg_time, stop_id[MAIN_PROFILE],
+                                                                                purged_cnt, lastdel_time, lastdel_id[MAIN_PROFILE],
+                                                                                len(list_to_del)-purged_cnt )
+            if not CONFIG.get('MACHINE',False):
+                say( "Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
+            else:
+                say( "{MACHINE}: %s" % logmsg )
+            try:
+                if not os.path.exists("./LOG"):
+                    os.makedirs('./LOG')
+                LOG_FILE = "./LOG/store-%s.log"%USER_LOGIN
+                content = []
+                if os.path.isfile(LOG_FILE):
+                    with codecs.open(LOG_FILE,'r','utf-8') as f:
+                        content = f.read().splitlines(True)
+
+                if len(content)>2:
+                    prelast = content[-2]
+                    last = content[-1]
+                    if last.find(". *0(")>0 and last.find(", -0(")>0:
+                        content = content[:-1]
+                        if prelast!='...\n':
+                            content.append('...\n')
+
+                with codecs.open(LOG_FILE,'w','utf-8') as f:
+                    f.write(''.join(content))
+                    nowstr = time.strftime("%d.%m %H:%M", time.localtime() )
+                    f.write( "%s %s: %s\n" % (nowstr,str_decode(load[2]),logmsg) )
+            except Exception as e:
+                print e
+
+            # 8. Remember new borders
 
             #print "Remember last message"
             stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
@@ -2462,9 +2580,7 @@ def executeMESSAGE():
                 for [id,stop] in stop_id.iteritems():
                     f.write( "%s=%s,%s,%s,%s\n" % ( id, stop, lastdel_id.get(id,0), last_times.get(id,0), str_decode(make_profiletext(id.split('_')[1]))) )
 
-            say( "Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
-
-            # 8. Save MP3 and video LIST
+            # 9. Save MP3 and video LIST
             save_mp3_video()
             downloadVideo( FILE_VIDEO, start_video_idx )
             start_video_idx = len_videolist
