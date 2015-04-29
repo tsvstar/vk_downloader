@@ -56,8 +56,10 @@ dflt_config = {
     'CONSOLE_SIZE':      '100:35',  # line/width
     'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
     'SECONDARY_PWD_ENC':  '',       #
+
     'WAIT_AFTER':       True,       # If False - do not wait after finish the script
-    "MACHINE":          False,      # If True - say in machine format
+    "MACHINE":          False,      # If True - say in machine format and prevent any waiting for answer
+    "DEL_UNREAD":       False,      # Delete messages which are not readed yet
 }
 
 
@@ -87,7 +89,6 @@ def Initialize():
     sysargv = util.getSysArgv()
     ARGV = util.getWinSysArgv()
 
-
     # get keys from argv
     if len(sysargv)>4:
         lines = []
@@ -111,7 +112,7 @@ def Initialize():
     WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
     if not WHAT:
         WHAT='ask'
-    RESTORE_FLAG =  ( WHAT.find('restore')==0 )
+    RESTORE_FLAG =  -1 if ( WHAT.find('restore')==0 ) else 0
     if RESTORE_FLAG:
        WHAT = WHAT[len('restore:'):]
        if len(WHAT)==0: WHAT='message'
@@ -679,8 +680,10 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             attach.append({u'wall':rec})
 
         # do not delete unreaded, important, attached, empty messages and unknown smiles
-        if ( m.get(u'read_state',0)!=0 and m.get(u'important',0)==0
-             and len(attach)==0 and len(fwd)==0 and len(body.strip())!=0
+        if ( ( m.get(u'read_state',0)!=0 and not CONFIG['DEL_UNREAD'])  # ...unreaded
+             and m.get(u'important',0)==0                               # ...important
+             and len(attach)==0 and len(fwd)==0                         # ...specific(attachments or forward)
+             and len(body.strip())!=0                                   # ...empty body - probably something goes wrong
              and not re_xmlref.search(body)
            ):
             if ( lastdel_id[MAIN_PROFILE] < id ):
@@ -876,13 +879,13 @@ def executeAsk():
    for k in xrange(0, len(menu)):
         say( u" %d - %s" % (k+1, unicformat(menu[k])) )
    menu_keys = map(lambda v: str(v), range(1, len(menu)+1) )
-   RESTORE_FLAG = False
+   RESTORE_FLAG = 0
    while True:
        answ = util.confirm( "Выберите действие:", menu_keys )
        action_ar = ['message','photo','mp3', 'wall','delete','restore:message']
        WHAT = action_ar[answ]
        if WHAT.startswith('restore:'):
-            RESTORE_FLAG = True
+            RESTORE_FLAG = -1
             WHAT=WHAT.split(':')[1]
        say ("Выбрано: "+ menu[answ] )
        if util.confirm("Верно[y/n]?"):
@@ -905,6 +908,7 @@ def executeAsk():
         url = ''
         MAIN_PROFILE=''
 
+   MAIN_PROFILE = '*'
    while url!='':
        say('Для того чтобы закончить ввод - на очередном вопросе просто нажмите ENTER ничего не вводя\n')
        while (url!=''):
@@ -915,7 +919,7 @@ def executeAsk():
        say
        if len(load_queue):
             break
-       if util.confirm(menu[k-1]+' - все [y/n]?'):
+       if util.confirm(menu[answ]+' - все [y/n]?'):
             break
    return WHAT, RESTORE_FLAG, MAIN_PROFILE
 
@@ -1253,12 +1257,13 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                         if item[u'user_id']!=me:                        # ..mark restored users
                             restoredusers.add(int(item[u'user_id']))
                             continue
+
                         body = item.get(u'body','').lower()
                         if ( len(body)==12                              # delete again message with PATTERN: 'detect123456' from yourself
                              and body.startswith('detect') ):
                                 todel.append(item[u'id'])
                         elif ( body[:8] in ['groupvk=','reportvk',      # delete again auxilary commands and report of group
-                                                'vk_clean','vk_store'] ):
+                                                'vk_clean','vk_store','vk_resto','vk_autoc'] ):
                                 todel.append(item[u'id'])
                         else:
                             restoredusers.add(int(item[u'user_id']))
@@ -1280,31 +1285,40 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                     util.print_mark( "(msgid=%d) %s\n" % ( id, time.strftime("%d.%m.%y %H:%M", time.localtime(d)) ) )
                     return d
 
-        say( "\nВосстанавливаем сообщения (%d записей)", len(to_restore) )
+        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO'] )
         idx = 0
         BLOCK_SIZE = 50
         restoredlst = []
         restoredusers = set()
         now = time.time()
         for id in reversed( sorted( to_restore ) ):
-            # a) BLOCK PRE-JOB (find existed to ignore id)
+            # a) BLOCK PRE-JOB
             if idx%BLOCK_SIZE == 0:
+                # a1) find existed to ignore id
                 msgids = ','.join(map(str,range(id-BLOCK_SIZE-1,id+1)))
                 msglst = vk_api.messages.getById( preview_length=1, message_ids = msgids )[u'items']
                 msg = filter( lambda item: item[u'date']<=0 or not item.get(u'deleted',0), msglst )
                 to_ignore = set( map(lambda item: item[u'id'], msg) )
                 ##print "@tsv_to_ignore", to_ignore
 
+                # a2) also ignore messages to yourself if MACHINE=True
+                to_ignore2 = set()
+                if CONFIG.get('MACHINE'):
+                    msg = filter( lambda item: item[u'user_id']==me, msglst )
+                    to_ignore2= set( map(lambda item: item[u'id'], msg) )
+
             # b) MAIN JOB
             try:
                 if id in to_ignore:
-                    util.print_mark("-")
+                    util.print_mark("-")                # mark '-' = existed message
+                elif id in to_ignore2:
+                    util.print_mark("^")                # mark '^' = message to yourself
                 else:
                     vk_api.messages.restore( message_id = id )
                     restoredlst.append(id)
-                    util.print_mark(".")
+                    util.print_mark(".")                # mark '.' = succesfully restored
             except vk.api.VkAPIMethodError as e:
-                util.print_mark("?")
+                util.print_mark("?")                    # mark '?' = failed to restore
                 #print e
             finally:
                 idx += 1
@@ -1316,7 +1330,7 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
 
                 if d is None:
                     continue
-                if ( now - d ) > RESTORE_FLAG*60:
+                if RESTORE_FLAG>0 and ( ( now - d ) > RESTORE_FLAG*60):
                     say( "Восстановление завершено - остаток записей имеет возраст больше %d минут" % RESTORE_FLAG )
                     break
                 ##if ( now - d ) > 24*3600:
@@ -2208,7 +2222,7 @@ def executeDELETE():
                     body += '\n' + text
 
 
-            delFlag = ( m.get(u'read_state',0)!=0       #keep if not readed
+            delFlag = ( (m.get(u'read_state',0)!=0  and not CONFIG['DEL_UNREAD'])   #keep if not readed
                         and m.get(u'important',0)==0    #     if marked
                         and len(attach)==0              #     if has attachment
                         and len(fwd)==0                 #     if it is forwarding
@@ -2391,6 +2405,10 @@ def executeMESSAGE():
 
     # Process MESSAGE downloading
     for load in load_queue:
+        try:
+
+            stored = []
+            purged_cnt = 0
 
             # 1. PREPARE AND PRINT NAME
             if load[0]=='user':
@@ -2426,6 +2444,16 @@ def executeMESSAGE():
             last_times[MAIN_PROFILE] = last_times.get(MAIN_PROFILE,0)
             say( "stop=%s, del=%s " % (stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]) )
 
+            if lastdel_id[MAIN_PROFILE]<1:
+
+                if IF_DELETE>0:
+                    if not CONFIG.get('MACHINE',False):
+                        say( "Небезопасное удаление (вся переписка) отменено" )
+                    else:
+                        say( "{MACHINE}: unsafe clean canceled" )
+                IF_DELETE=0
+
+
             lastdel_time, stopmsg_time = 0,0
             id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
             while id > 0:
@@ -2450,9 +2478,9 @@ def executeMESSAGE():
 
             prev = [ last_times[MAIN_PROFILE], 0, '']
 
+            to_remember = []
             keys = messages.keys()
             keys.sort()
-            stored = []
             for k in keys:
                 v = messages[k]
                 t = time.localtime(v[0])
@@ -2474,6 +2502,7 @@ def executeMESSAGE():
 
                 if CONFIG['WRITE_MSGID']:
                     os.write( tmpfp, "%s\n" % k )
+                to_log_body = to_remember.append( time.strftime("%d.%m.%y %H:%M",t) +"\t"+str_decode(v[2]) )
                 body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
                 how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
                 body = ("\r\n%s" % how_many_t).join(body)
@@ -2519,7 +2548,7 @@ def executeMESSAGE():
                 v = messages[int(first)]
                 t = time.localtime(v[0])
                 lastdel_time = time.strftime("%d.%m.%y %H:%M",t )
-            else:
+            elif lastdel_id[MAIN_PROFILE]>0:
                 res = vk_api.messages.getById(message_ids=lastdel_id[MAIN_PROFILE])
                 if len(res[u'items']):
                     t = time.localtime(res[u'items'][0][u'date'])
@@ -2532,7 +2561,7 @@ def executeMESSAGE():
                 purged_cnt = len(list_to_del)
                 removeMessage( list_to_del )
 
-
+        finally:
             #7. Log
             if IF_DELETE>0:   mode="del"
             elif IF_DELETE<0: mode="keep"
@@ -2566,21 +2595,40 @@ def executeMESSAGE():
                     f.write(''.join(content))
                     nowstr = time.strftime("%d.%m %H:%M", time.localtime() )
                     f.write( "%s %s: %s\n" % (nowstr,str_decode(load[2]),logmsg) )
+
+                if  CONFIG.get('MACHINE',False):
+                    LOG_TXT_FILE = "./LOG/store-msg-%s.log"%USER_LOGIN
+                    with codecs.open(LOG_TXT_FILE,'a','utf-8') as f:
+                        f.write('\n'.join(to_remember+['']))
             except Exception as e:
                 print e
 
-            # 8. Remember new borders
+        # 8. Remember new borders
 
-            #print "Remember last message"
-            stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
-            lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
+        #print "Remember last message"
+        stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
+        lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
 
+        FILE_MAIN_BAK = FILE_MAIN + '.bak'
+        try:
+            if os.path.exists(FILE_MAIN_BAK):
+                os.unlink(FILE_MAIN_BAK)
+            if os.path.exists(FILE_MAIN):
+                os.rename(FILE_MAIN,FILE_MAIN_BAK)
             with codecs.open(FILE_MAIN,'w','utf-8') as f:
             #with open(FILE_MAIN,"w") as f:
                 for [id,stop] in stop_id.iteritems():
                     f.write( "%s=%s,%s,%s,%s\n" % ( id, stop, lastdel_id.get(id,0), last_times.get(id,0), str_decode(make_profiletext(id.split('_')[1]))) )
+        except Exception as e:
+            print "ERR: %s" %str(e)
+            # rollback if anything goes wrong
+            if os.path.exists(FILE_MAIN_BAK):
+                if os.path.exists(FILE_MAIN):
+                    os.unlink(FILE_MAIN)
+                os.rename(FILE_MAIN_BAK,FILE_MAIN)
 
-            # 9. Save MP3 and video LIST
-            save_mp3_video()
-            downloadVideo( FILE_VIDEO, start_video_idx )
-            start_video_idx = len_videolist
+
+        # 9. Save MP3 and video LIST
+        save_mp3_video()
+        downloadVideo( FILE_VIDEO, start_video_idx )
+        start_video_idx = len_videolist

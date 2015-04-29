@@ -140,9 +140,13 @@ def getinput( s ):
     if s:
         s = str_transcode(s,scriptencoding,'cp866')
         print_mark(s)
+    if CONFIG.get('MACHINE',False):
+        raise Exception('getinput() call for non-interactive mode')
     return raw_input('')
 
 def getchar():
+    if CONFIG.get('MACHINE',False):
+        raise Exception('getchar() call for non-interactive mode')
     return getch()
 
 def confirm( prompt, choiceList = None ):
@@ -156,6 +160,8 @@ def confirm( prompt, choiceList = None ):
 
         sys.stdout.write( str_decode( prompt, scriptencoding ) )
         sys.stdout.flush()
+        if CONFIG.get('MACHINE',False):
+            raise Exception('confirm() call for non-interactive mode')
         val = ''
         while val.lower() not in choiceList:
           val = str_decode(getch(),'cp866')
