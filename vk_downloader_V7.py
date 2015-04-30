@@ -59,7 +59,7 @@ dflt_config = {
 
     'WAIT_AFTER':       True,       # If False - do not wait after finish the script
     "MACHINE":          False,      # If True - say in machine format and prevent any waiting for answer
-    "DEL_UNREAD":       False,      # Delete messages which are not readed yet
+    "DEL_ENFORCED":     False,      # Delete messages which are not readed yet and with attachments
 }
 
 
@@ -616,8 +616,6 @@ def parse_attachment( attach, pre, html = False ):
         preview = []
     return body, preview
 
-
-
 #  GET MESSAGES
 def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None ):
     global CURMSG_TIME
@@ -680,12 +678,12 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             attach.append({u'wall':rec})
 
         # do not delete unreaded, important, attached, empty messages and unknown smiles
-        if ( ( m.get(u'read_state',0)!=0 and not CONFIG['DEL_UNREAD'])  # ...unreaded
-             and m.get(u'important',0)==0                               # ...important
-             and len(attach)==0 and len(fwd)==0                         # ...specific(attachments or forward)
-             and len(body.strip())!=0                                   # ...empty body - probably something goes wrong
-             and not re_xmlref.search(body)
-           ):
+        if (( CONFIG['DEL_ENFORCED'] or                 # delete if enforced flag or NOT:
+             ( m.get(u'read_state',0)!=0 )                # ...unreaded
+               and m.get(u'important',0)==0               # ...important
+               and len(attach)==0 and len(fwd)==0         # ...specific(attachments or forward)
+               and len(body.strip())!=0  )                # ...empty body - probably something goes wrong
+           and not re_xmlref.search(body) ):           # ...+always keep if unknown smile
             if ( lastdel_id[MAIN_PROFILE] < id ):
                 list_to_del.append(id)
 
@@ -1205,7 +1203,13 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
 
         to_restore = []
         for l in load_value.splitlines():
-            to_restore += filter( len, l.split('|')[0].strip().split(',') )
+            to_restore += sorted( filter( len, l.split('|')[0].strip().split(',') ) )
+
+        minutes = filter( lambda s: s.endswith('m'), to_restore )
+        to_restore = filter( lambda s: not s.endswith('m'), to_restore )
+        print minutes
+        if len(minutes)>0:
+                RESTORE_FLAG = util.make_int(minutes[0][:-1], RESTORE_FLAG)
 
         re_range = re.compile("^([0-9])-([0-9]+)$")
         def _convert_val( s ):
@@ -1262,8 +1266,9 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                         if ( len(body)==12                              # delete again message with PATTERN: 'detect123456' from yourself
                              and body.startswith('detect') ):
                                 todel.append(item[u'id'])
-                        elif ( body[:8] in ['groupvk=','reportvk',      # delete again auxilary commands and report of group
-                                                'vk_clean','vk_store','vk_resto','vk_autoc'] ):
+                        elif ( body[:8] in ['groupvk=','reportvk'] ):     # delete again auxilary commands and report of group
+                                todel.append(item[u'id'])
+                        elif ( body[:8].lower() in ['vk_clean','vk_del','vk_store','vk_resto','vk_autoc','vk_autod'] ):
                                 todel.append(item[u'id'])
                         else:
                             restoredusers.add(int(item[u'user_id']))
@@ -1285,7 +1290,7 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                     util.print_mark( "(msgid=%d) %s\n" % ( id, time.strftime("%d.%m.%y %H:%M", time.localtime(d)) ) )
                     return d
 
-        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO'] )
+        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s/%s минут)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO', RESTORE_FLAG] )
         idx = 0
         BLOCK_SIZE = 50
         restoredlst = []
@@ -2222,11 +2227,12 @@ def executeDELETE():
                     body += '\n' + text
 
 
-            delFlag = ( (m.get(u'read_state',0)!=0  and not CONFIG['DEL_UNREAD'])   #keep if not readed
-                        and m.get(u'important',0)==0    #     if marked
-                        and len(attach)==0              #     if has attachment
-                        and len(fwd)==0                 #     if it is forwarding
-                        and len(body.strip())!=0 )      #     if empty body
+            delFlag = (( CONFIG['DEL_ENFORCED'] ) or             # delete if
+                        ( m.get(u'read_state',0)!=0                # ...readed
+                        and m.get(u'important',0)==0               # ...and unimportant
+                        and len(attach)==0 and len(fwd)==0         # ...not specific(have no attachments or forward)
+                        and len(body.strip())!=0                   # ...have not empty body - so everything was ok
+                        ) )
 
             body = str_encode(body.strip())
             for [k,v] in repl_ar.iteritems():
