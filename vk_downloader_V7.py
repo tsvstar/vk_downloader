@@ -2391,9 +2391,9 @@ def executeMESSAGE():
 
                 if CONFIG['WRITE_MSGID']:
                     os.write( tmpfp, "%s\n" % k )
-                #pref_who = '>' if v[1]==me else '<'
-                #to_log_body = to_remember.append( time.strftime(pref_who+"%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
-                to_log_body = to_remember.append( time.strftime("%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
+                pref_who = '>' if v[1]==me else '<'
+                to_log_body = to_remember.append( time.strftime("%d.%m %H:%M "+pref_who,t) +"\t"+str_decode(v[2]) )
+                #to_log_body = to_remember.append( time.strftime("%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
                 body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
                 how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
                 body = ("\r\n%s" % how_many_t).join(body)
@@ -2516,8 +2516,10 @@ def executeMESSAGE():
         try:
             if os.path.exists(FILE_MAIN_BAK):
                 os.unlink(FILE_MAIN_BAK)
+                say("unlink%s",[FILE_MAIN_BAK])	#@tsv
             if os.path.exists(FILE_MAIN):
                 os.rename(FILE_MAIN,FILE_MAIN_BAK)
+                say("rename %s->%s",[FILE_MAIN,FILE_MAIN_BAK]) #@tsv
 
             globals()['lazy_profile_batch'] += map( lambda k: util.make_int(k.split('_')[1]), stop_id.iterkeys() )
 
@@ -2531,7 +2533,9 @@ def executeMESSAGE():
             if os.path.exists(FILE_MAIN_BAK):
                 if os.path.exists(FILE_MAIN):
                     os.unlink(FILE_MAIN)
+                    say("unlink %s",[FILE_MAIN])	#@tsv
                 os.rename(FILE_MAIN_BAK,FILE_MAIN)
+                say("rename %s->%s",[FILE_MAIN_BAK,FILE_MAIN])	#@tsv
 
 
         # 9. Save MP3 and video LIST

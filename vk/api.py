@@ -36,7 +36,7 @@ def SayToLog( text ):
     with codecs.open('./LOG/vk_api.log','ab','utf-8') as f:
         ts = time.strftime("%d.%m.%y %H:%M:%S")
         f.write( "%s [%05x] %s\n" % (ts, os.getpid(), text ) )
-        for stack in list(reversed(traceback.extract_stack()))[3:-3]:
+        for stack in list(reversed(traceback.extract_stack()))[3:-2]:
           f.write("\t%s:%s\t%s %s\n"%stack)
           #f.write("\t%s:%s\t%s\n"%(stack[0],stack[1],stack[2]))
         #f.write( repr(list(reversed(traceback.extract_stack()))[3:-3])+"\n" )
@@ -57,7 +57,7 @@ class APISession(object):
 
         user_login = user_login or user_email
 
-        SayToLog( "access_token=%s; user_login=%s; timeout=%s" % (access_token, user_login, timeout) )
+        SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s)" % (access_token, user_login, timeout) )
 
         if (not user_login or not user_password) and not access_token:
             raise ValueError('Arguments user_login and user_password, or access_token are required')
