@@ -5,6 +5,8 @@
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]
 
 import sys,os,traceback
+import config
+import vk_utils
 import tsv_utils as util
 from requests import RequestException
 
@@ -27,15 +29,39 @@ try:
     # ..do any util.sysargv/ARGV changes here
     #
 
+
+    cfg_loaded  = config.load_config( config.CFGFILE )                    # load config
+    argv_loaded = config.InitConfigFromARGV( startsfrom = 4 )             # load arguments from ARGV
+    try:                                                                  # extend console - made after first load config to load CONSOLE_SIZE
+        import util_console
+        c_w, c_h = (config.CONFIG['CONSOLE_SIZE'].split(':')+['0'])[:2]
+        util_console.extendConsoleSize( c_w, c_h )
+    except:
+        pass
+    if cfg_loaded:
+        print "Loaded values from %s: %s" % ( config.CFGFILE, str(cfg_loaded) )
+    if argv_loaded:
+        print "Loaded values from ARGV: %s" % str(argv_loaded)
+
+    util.CONFIG = config.CONFIG                                         # initialize util.CONFIG (needed to process 'MACHINE' key)
+
+
+
     # do action
     import vk_downloader_V7 as myvk
 
     WHAT, RESTORE_FLAG, MAIN_PROFILE = myvk.Initialize()
     LOGIN = myvk.VKEnterLogin()
     myvk.InitializeDir( LOGIN, WHAT )
-    myvk.VKSignIn( LOGIN )
+    myvk.vk_api, myvk.me, myvk.USER_PASSWORD = vk_utils.VKSignIn( LOGIN )
 
-    myvk.load_queue = []				            # Init "load_queue"
+    me = myvk.me
+    if config.CONFIG['APP_ID']==config.dflt_config['APP_ID']:
+      # Проверка доверенных пользователей
+      #@APP_CHECK@
+        raise util.FatalError('Неизвестный APP_ID - должен быть указан в vk.cfg')
+
+    myvk.load_queue = []				        # Init "load_queue"
     if WHAT=='ask':
         WHAT, RESTORE_FLAG, MAIN_PROFILE = myvk.executeAsk()    # "Ask" action
         myvk.InitializeDir( LOGIN, WHAT )                       # update dirs
@@ -78,11 +104,12 @@ except RequestException as e:
     util.say( "Ошибка сети: %s", e )
 except Exception as e:
     print e
+    sys.stderr.write("%s: %s\n"%(type(e), str(e)))
     print traceback.print_exc()     #file=sys.stdout)
 
 isWaitFlag = True
 try:
-   isWaitFlag = myvk.CONFIG.get( 'WAIT_AFTER', True )
+   isWaitFlag = config.CONFIG.get( 'WAIT_AFTER', True )
 except:
     pass
 

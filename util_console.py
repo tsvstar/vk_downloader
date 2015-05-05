@@ -3,7 +3,19 @@
  - works on linux,os x,windows,cygwin(windows)
 """
 
-__all__=[ 'getTerminalSize', 'setTerminalSize' ]
+__all__=[ 'getTerminalSize', 'setTerminalSize', 'initConsoleSize' ]
+
+import tsv_utils
+
+
+def extendConsoleSize( console_width, console_height ):
+    import sys
+    if sys.stdout.isatty():
+            cw_new, ch_new = tsv_utils.make_int(console_width), tsv_utils.make_int(console_height)
+            cw, ch = getTerminalSize()
+            if cw_new <= cw: cw_new = None
+            if ch_new <= ch: ch_new = None
+            setTerminalSize( cw_new, ch_new )
 
 
 def getTerminalSize():

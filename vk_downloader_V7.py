@@ -2,71 +2,15 @@
 
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]
 
-# WHY IF I GIVE VIDEO FROM CLOSED GROUP IT DON'T KNOW ABOUT ITS NAME AND THINK 0_00
-
-#      +message: squeeze: '  '->' '
-#      create/use __msg_all.last.bak
-#      multithreaded dload(?)
-# change order of choosing format (webm(vp8) have better quality for 360p)
-# apply extension to video from fmt (incl/ correct cache )
-# why dloader do not see 480p? (for example -- https://www.youtube.com/watch?v=8EaQZnq1R1Q ) -- looks like it is segmented
-#  -->  + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676367305285&ip=46.164.135.35&key=yt5&itag=140&mime=audio%2Fmp4&keepalive=yes&clen=7290578&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=154BA0F13BBCABCB9FDFE876AF450804EE93446B.9F54E30B4BD872A0E887649B963FE13AEDD6EEEB&pl=22&mm=31&dur=454.089&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&type=audio/mp4;+codecs="mp4a.40.2"&index=592-1175&bitrate=129645&init=0-591&
-#       + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676376236216&ip=46.164.135.35&key=yt5&itag=135&mime=video%2Fmp4&keepalive=yes&clen=6460073&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=7F632C563F0569E34285FF2CBA466B3B869854A2.86D712EDC84F694A70F725436D4E8DC5252B79CC&pl=22&mm=31&dur=453.968&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&init=0-709&fps=30&size=804x480&type=video/mp4;+codecs="avc1.4d401f"&index=710-1833&bitrate=297257&
-# AGAIN can't decrypt:: http://youtu.be/nYwe_WHARdc
-
 
 import os, time, base64, re, codecs, random     #, pickle,urllib
 import vk, pytube
-import util_console, tsv_utils as util
+import config
+import vk_utils
+import tsv_utils as util
 from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError
 
 DBGprint = util.dbg_print        # alias
-
-# Default values of  CONFIG. Only matched here will be parsed to globals()
-dflt_config = {
-    'APP_ID':            '#@MY_TOKEN@', # aka API/Client id
-    'USER_LOGIN':        '',        # user email or phone number
-    'USER_PASSWORD':     '',
-
-    'MAIN_PROFILE':      '*',       # Which user/chat history load (*=all) {usually given in command line}
-
-    'DOWNLOAD_VIDEO':    True,      # Store video for later download
-    'VIDEO_MAX_SIZE':    500,       # Maximum resolution to download
-    'DAYSBEFORE':        700,       # How deeply load history
-    'IF_DELETE':         None,      # Delete messages: None - ask, 1-delete, -1=keep_and_do_not_delete, 0=keep_but_delete_later
-    'DOWNLOAD_MP3':      True,      # True = download mp3 in messages/wall
-    'DOWNLOAD_MP3_ONCE': True,      # True - if mp3 was dloaded then remember and do not download even if it was deleted locally {REMEMBER_SKIP_MP3}
-    'SKIP_EXISTED_FILE': True,      # If img/media exists then do not update it
-
-    'WRITE_MSGID':       False,      # DBG: print message id
-    'SHOW_SKIPED_MEDIA': False,      # DBG: print MEDIA file name
-
-    'LOAD_COMMENTS':     True,      # Need to Download comments for wall
-    'LOAD_LIKES':        False,     # Need to Download likes for wall
-    'DOWNLOAD_AS_HTML':  True,      # Download as plain text or as html
-    'SEPARATE_TEXT':     'year',    # How to separate media [None|day|month|year|id]
-    'SEPARATE_MEDIA':    'month',   # How to separate media [None|day|month|year|id]
-
-    'WALL_QUICKUPDATE':  True,      # If True update existed wall records only if like/comment count was changed            !!!TODO
-    'WALL_DEDUPE':       False,     # if True - check for existance (by preview) of same post and exclude(comment out) it
-    'WALL_HIDE_ONLY_IMAGE': False,  # if True - comment out messages with no body and only images
-
-    'SKIP_AUTH_TOKEN':   False,     # Do not authenticate using AUTH TOKEN
-    #'CONSOLE_SIZE':      '80:25',  # line/width
-    'CONSOLE_SIZE':      '100:35',  # line/width
-    'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
-    'SECONDARY_PWD_ENC':  '',       #
-
-    'WAIT_AFTER':       True,       # If False - do not wait after finish the script
-    "MACHINE":          False,      # If True - say in machine format and prevent any waiting for answer
-    "DEL_ENFORCED":     False,      # Delete messages which are not readed yet and with attachments
-}
-
-
-CFGFILE = "./vk.cfg"
-util.CONFIG = dflt_config.copy()
-CONFIG = util.CONFIG
-
 
 """
 ##########################################
@@ -75,40 +19,19 @@ CONFIG = util.CONFIG
 """
 
 def Initialize():
-    global WHAT,RESTORE_FLAG,MAIN_PROFILE, IF_DELETE_GLOBAL
-
-    util.load_config( CFGFILE )
-
-    console_size = CONFIG['CONSOLE_SIZE'].split(':')+['0']
-    cw_new, ch_new = util.make_int(console_size[0]), util.make_int(console_size[1])
-    cw, ch = util_console.getTerminalSize()
-    if cw_new <= cw: cw_new = None
-    if ch_new <= ch: ch_new = None
-    util_console.setTerminalSize( cw_new, ch_new )
-
-    sysargv = util.getSysArgv()
-    ARGV = util.getWinSysArgv()
-
-    # get keys from argv
-    if len(sysargv)>4:
-        lines = []
-        for arg in sysargv[4:]:
-            a = arg.split('=',1)
-            if len(a)>1 and a[0].startswith('--'):
-                k = a[0][2:].replace('-','_').upper()
-                if k not in util.CONFIG:
-                    say( "ERROR: Неизвестная опция %s", arg )
-                else:
-                    lines.append( [k, a[1]] )
-        util.load_config_lines( lines )
+    global WHAT,RESTORE_FLAG,MAIN_PROFILE, IF_DELETE_GLOBAL, CONFIG
 
     # Copy util.CONFIG to this module globals
-    util.import_vars( globals(), util.CONFIG, dflt_config.keys(), isOverwrite=True )
+    CONFIG = config.CONFIG
+    util.import_vars( globals(), config.CONFIG, config.dflt_config.keys(), isOverwrite=True )
     IF_DELETE_GLOBAL = CONFIG['IF_DELETE']
 
     say()
 
     # Parse main ARGV parameters
+    sysargv = util.getSysArgv()
+    ARGV = util.getWinSysArgv()
+
     WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
     if not WHAT:
         WHAT='ask'
@@ -125,7 +48,6 @@ def Initialize():
 
 
     # Basic validations
-
     try:
         if CONFIG['APP_ID'] is None:
             raise FatalError()
@@ -169,7 +91,7 @@ def VKEnterLogin( fldName = 'USER_LOGIN' ):
     while len(USER_LOGIN.strip())==0:
         USER_LOGIN = util.getinput("Введите логин VK: ").strip()
         if len(USER_LOGIN) and util.confirm( "Запомнить логин[y/n]?" ):
-            with open(CFGFILE, "at") as cfgfile:
+            with open(config.CFGFILE, "at") as cfgfile:
                 cfgfile.write('%s="%s"\n' % (fldName, USER_LOGIN ) )
         say()
     CONFIG[fldName] = USER_LOGIN
@@ -200,8 +122,6 @@ def InitializeDir( USER_LOGIN, WHAT ):
     FILE_STORED = "%s/__msg.stored" % BASEDIR
     FILE_BAKDEL = "%s/__msg.bakdel" % BASEDIR
     FILE_MAIN   = "%s/__msg_all.last" % BASEDIR
-    FILE_AUTH   = "./__vk.token-%s" % USER_LOGIN
-    #FILE_AUTH_SESSION   = "./__vk.tokensession-%s" % USER_LOGIN
 
     FILE_MP3_SKIP = "./__vk.mp3list-%s" % USER_LOGIN
     FILE_VIDEO    = "./__vk.videolist"
@@ -300,6 +220,8 @@ last_times = {}		# [profileid] = timestamp of last saved message
 
 re_xmlref = re.compile("&#[0-9]+;")
 
+lazy_profile_batch = []
+
 # AUXILARY FUNCTION
 def _add_profile( id, answ ):
     if id in profiles:
@@ -321,6 +243,12 @@ def get_profile( id ):
 
     if id in profiles:
         return id
+
+    if lazy_profile_batch:
+        batch_preload( set(lazy_profile_batch) )
+        globals()['lazy_profile_batch'] = []
+        return get_profile( id )
+
     if id >= 0:
         p = vk_api.users.get( user_id=id )
     else:
@@ -341,6 +269,12 @@ def batch_preload( preload, isGroup = None ):
         #except: pass
         batch_preload( filter( lambda i: i>=0, preload), False )
         batch_preload( filter( lambda i: i<0,  preload), True )
+        return
+
+    if len(preload)>500:
+        preload = list(preload)
+        batch_preload(preload[:495])
+        batch_preload(preload[495:])
         return
 
     if isGroup:
@@ -618,7 +552,7 @@ def parse_attachment( attach, pre, html = False ):
 
 #  GET MESSAGES
 def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None ):
-    global CURMSG_TIME
+    global CURMSG_TIME, lazy_profile_batch
 
     # set defaults
     stop_id[MAIN_PROFILE] = stop_id.get(MAIN_PROFILE,0)
@@ -628,6 +562,26 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
 
     min_id = -1
     util.print_mark('.')
+
+    # do preload all possible related users and groups
+    batch = []
+    for m in lst[u'items']:
+        batch.append( util.make_int(m.get(u'from_id',1)) )
+        fwd = m.get(u'fwd_messages',[])
+        attachments = list( m.get(u'attachments',[]) )
+        for f in fwd:
+            if u'user_id' in f:
+                batch.append( util.make_int(f[u'user_id']) )
+                attachments += f.get( u'attachments', [] )
+        for a in attachments:
+            if u'wall' in a:
+                a = a[u'wall']
+                hist = a.get( u'copy_history', [a] )[0]
+                fromid = hist.get( u'from_id', 0 )
+                batch.append( util.make_int(fromid) )
+    lazy_profile_batch += batch
+
+    # main cycle
     #print lst
     for m in lst[u'items']:
         id = int(m.get(u'id',0))
@@ -635,12 +589,14 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
         if ( id in messages ): continue
         t = int(m.get(u'date'))
         CURMSG_TIME = t
+        ##print "id%s, t%s, stopt%s, lastdel%s, stopid%s" % (id,t,stoptime,lastdel_id[MAIN_PROFILE],stop_id[MAIN_PROFILE])
         if ( stoptime > t ): continue
         if IF_DELETE>0:
             stop = ( lastdel_id[MAIN_PROFILE] >= id )
         else:
             stop = ( stop_id[MAIN_PROFILE] >= id )
         if ( not stop and ( id < min_id or min_id == -1 ) ): min_id = id
+        ##print "stop%s, min_id%s; read_state%s"% (stop,min_id,m.get(u'read_state',0))
 
         who = get_profile( m.get(u'from_id',1) )
         if reinitHandler is not None:
@@ -720,7 +676,8 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
         if count_likes>0:
             res = vk_api.likes.getList( type='post', owner_id=m.get(u'owner_id',0), item_id=m.get(u'id',0), filter='likes', count=100)
             likes = res[u'items']
-            batch_preload( likes )
+            util.TODO( str(likes) )
+            lazy_profile_batch += list( likes )
             ##print "LIKES"
             ##print res
 
@@ -783,82 +740,6 @@ def init_dirs( objtype, objid, objname ):
 
 DAYS = ( u"ПН", u"ВТ", u"СР", u"ЧТ", u"ПТ", u"СБ", u"ВС")
 #@MORE_INIT@
-
-
-""" VK LOGIN SEQUENCE """
-##say( "Logged in as %s", USER_LOGIN )
-
-def VKLoginByToken():
-    global me
-
-    if not os.path.exists( FILE_AUTH ):
-        return None
-    with open(FILE_AUTH,'r') as f:
-        first = f.readlines()[0]
-        ##say( "..try to use token authorization (to remain offline)" )
-        vk_api = vk.API( access_token=first, timeout=5 )
-
-        #check auth
-        try:
-            me = vk_api.users.get()[0][u'id']
-            say( "Залогинены в offline-режиме как %s", CONFIG['USER_LOGIN'] )
-        except Exception as e:
-            vk_api = None
-    return vk_api
-
-def VKLoginByPassword( USER_LOGIN, deleteToken = True,  fldPwd=None, fldPwdEncoded='USER_PASSWORD_ENC'):
-    global PWD_ENC, token
-
-    PWD_ENC =  CONFIG.get( fldPwdEncoded, '' )
-    USER_PASSWORD = util.str_decrypt64( PWD_ENC, USER_LOGIN )
-    if USER_PASSWORD =='':
-        CONFIG.get( fldPwd, '' )
-
-    say( "Авторизуемся как %s", USER_LOGIN )
-    if deleteToken and os.path.isfile( FILE_AUTH ):
-        os.unlink( FILE_AUTH )
-
-    WAS_PWD_ENC = PWD_ENC
-    while True:
-      while  (USER_PASSWORD==''):
-         USER_PASSWORD = util.getinput( unicformat("Введите пароль для '%s': ", USER_LOGIN) )
-         PWD_ENC = util.str_crypt64( USER_PASSWORD, USER_LOGIN )
-      try:
-         vk_api = vk.API( CONFIG['APP_ID'], USER_LOGIN, USER_PASSWORD, scope='offline,messages,photos,audio,video,friends', timeout=5)
-         token = USER_LOGIN + '|'+ USER_PASSWORD
-         if PWD_ENC!='' and WAS_PWD_ENC!=PWD_ENC and util.confirm("Вы хотите запомнить пароль(y/n)?"):
-            with open(CFGFILE, "at") as cfgfile:
-                cfgfile.write('%s="%s"\n' % ( fldPwdEncoded, PWD_ENC ) )
-         break
-      except Exception as e:
-         say( "ERROR: %s\n", e )
-         USER_PASSWORD =''
-
-    me = vk_api.users.get()[0][u'id']
-    return vk_api, me, USER_PASSWORD
-
-def VKSaveToken( vk_api ):
-    #remember token
-    if not CONFIG['SKIP_AUTH_TOKEN']:
-        with open(FILE_AUTH,'w') as f:
-            f.write(str(vk_api.access_token))
-
-def VKSignIn( USER_LOGIN ):
-  global vk_api, me, USER_PASSWORD
-
-  vk_api = None
-  if not CONFIG['SKIP_AUTH_TOKEN']:
-    vk_api = VKLoginByToken()
-
-  if vk_api is None:
-    ##say( "..full authorize.." )
-    vk_api, me, USER_PASSWORD = VKLoginByPassword( USER_LOGIN, fldPwd='USER_PASSWORD', deleteToken = True )
-    VKSaveToken( vk_api )
-
-  if CONFIG['APP_ID']==dflt_config['APP_ID']:
-    # Проверка доверенных пользователей
-    #@APP_CHECK@
-        raise FatalError('Неизвестный APP_ID - должен быть указан в vk.cfg')
 
 
 load_queue = []				# load_queue[idx] = [0type, 1id, 2title, 3album]
@@ -1268,7 +1149,7 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                                 todel.append(item[u'id'])
                         elif ( body[:8] in ['groupvk=','reportvk'] ):     # delete again auxilary commands and report of group
                                 todel.append(item[u'id'])
-                        elif ( body[:8].lower() in ['vk_clean','vk_del','vk_store','vk_resto','vk_autoc','vk_autod'] ):
+                        elif ( body[:3].lower() in ['vk_','vk:'] ):
                                 todel.append(item[u'id'])
                         else:
                             restoredusers.add(int(item[u'user_id']))
@@ -1370,7 +1251,7 @@ def downloadVideo( file_videolist, start_idx ):
 
         import requests
         def getVKInstance():
-            global session, vkLoginDone
+            global session, vkLoginDone, USER_PASSWORD
 
             if vkLoginDone:
                 return session
@@ -1393,11 +1274,13 @@ def downloadVideo( file_videolist, start_idx ):
                 #USER_LOGIN2 =  VKEnterLogin( fldName = 'SECONDARY_LOGIN' )
                 USER_LOGIN2 = CONFIG.get('SECONDARY_LOGIN','').strip()
                 if USER_LOGIN2=='':
+                    # if no secondary login given, use main one (and get/ask for password)
                     if USER_PASSWORD=='':
-                        tmpapi, me, USER_PASSWORD = VKLoginByPassword( USER_LOGIN, deleteToken = False )
+                        _, _, USER_PASSWORD = vk_utils.VKLoginByPassword( USER_LOGIN, FileAuth = None )
                     USER_LOGIN2, USER_PASSWORD2 = USER_LOGIN, USER_PASSWORD
                 else:
-                    tmpapi, tmpme, USER_PASSWORD2 = VKLoginByPassword( USER_LOGIN2, fldPwdEncoded='SECONDARY_PWD_ENC', deleteToken=False )
+                    # if secondary login is given, get/ask its password
+                    _, _, USER_PASSWORD2 = vk_utils.VKLoginByPassword( USER_LOGIN2, fldPwdEncoded='SECONDARY_PWD_ENC', FileAuth = None )
             else:
                 raise OkExit("Скачивание видео отменено")
 
@@ -1851,7 +1734,7 @@ def executeMP3():
 
 def executeWALL():
     global load_queue, MAIN_PROFILE, IF_DELETE, start_video_idx
-    global list_to_del, messages
+    global list_to_del, messages, lazy_profile_batch
     global cacheHandler, MSG_CACHE, MSG_CACHE_FILES
 
     say( "\nНастройки сохранения стены:" )
@@ -2147,7 +2030,7 @@ def executeWALL():
                 break
             preload  = map( lambda item:  int(item[u'id']), res[u'profiles'] )
             preload += map( lambda item: -int(item[u'id']), res[u'groups'] )
-            batch_preload( preload )
+            lazy_profile_batch += preload
 
             if isHTML and CONFIG['WALL_QUICKUPDATE']:
                 get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler )
@@ -2415,6 +2298,7 @@ def executeMESSAGE():
 
             stored = []
             purged_cnt = 0
+            to_remember = []
 
             # 1. PREPARE AND PRINT NAME
             if load[0]=='user':
@@ -2457,7 +2341,7 @@ def executeMESSAGE():
                         say( "Небезопасное удаление (вся переписка) отменено" )
                     else:
                         say( "{MACHINE}: unsafe clean canceled" )
-                IF_DELETE=0
+                IF_DELETE = -1
 
 
             lastdel_time, stopmsg_time = 0,0
@@ -2484,7 +2368,6 @@ def executeMESSAGE():
 
             prev = [ last_times[MAIN_PROFILE], 0, '']
 
-            to_remember = []
             keys = messages.keys()
             keys.sort()
             for k in keys:
@@ -2508,7 +2391,9 @@ def executeMESSAGE():
 
                 if CONFIG['WRITE_MSGID']:
                     os.write( tmpfp, "%s\n" % k )
-                to_log_body = to_remember.append( time.strftime("%d.%m.%y %H:%M",t) +"\t"+str_decode(v[2]) )
+                #pref_who = '>' if v[1]==me else '<'
+                #to_log_body = to_remember.append( time.strftime(pref_who+"%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
+                to_log_body = to_remember.append( time.strftime("%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
                 body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
                 how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
                 body = ("\r\n%s" % how_many_t).join(body)
@@ -2549,6 +2434,15 @@ def executeMESSAGE():
 
             # 6. PURGE MESSAGES
             purged_cnt = 0
+
+            # a) clean up according to KEEP_LAST_SECONDS
+            keep_after_time = time.time() - util.make_int( CONFIG['KEEP_LAST_SECONDS'], 0 )
+            filtered = filter( lambda id: messages[int(id)][0]>=keep_after_time, list_to_del )
+            if len(filtered):
+                print "Keep because of KEEP_LAST_SECONDS: %s" %filtered         #@tsv
+            list_to_del = filter( lambda id: messages[int(id)][0]<keep_after_time, list_to_del )
+
+            # b) prepare last visible message in human-readable form
             if len(list_to_del):
                 first = sorted(list_to_del)[0]
                 v = messages[int(first)]
@@ -2561,6 +2455,7 @@ def executeMESSAGE():
                     lastdel_time = time.strftime("after %d.%m.%y %H:%M",t )
 
             ##print list_to_del
+            # c) actually purge them
             if IF_DELETE>0 and len(list_to_del)>0:
                 say( "Удаляем сообщения" )
                 say( "  minid=%d, maxid=%d", [min(list_to_del), max(list_to_del)])
@@ -2571,8 +2466,10 @@ def executeMESSAGE():
             #7. Log
             if IF_DELETE>0:   mode="del"
             elif IF_DELETE<0: mode="keep"
-            else:             mode="postponed"
-            logmsg= "mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), postponed%d" % ( mode,
+            else:             mode="postp"
+            if isinstance(stopmsg_time,str): stopmsg_time = stopmsg_time.replace('.','')
+            if isinstance(lastdel_time,str): lastdel_time = lastdel_time.replace('.','')
+            logmsg= "mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), post%d" % ( mode,
                                                                                 len(stored), stopmsg_time, stop_id[MAIN_PROFILE],
                                                                                 purged_cnt, lastdel_time, lastdel_id[MAIN_PROFILE],
                                                                                 len(list_to_del)-purged_cnt )
@@ -2621,6 +2518,9 @@ def executeMESSAGE():
                 os.unlink(FILE_MAIN_BAK)
             if os.path.exists(FILE_MAIN):
                 os.rename(FILE_MAIN,FILE_MAIN_BAK)
+
+            globals()['lazy_profile_batch'] += map( lambda k: util.make_int(k.split('_')[1]), stop_id.iterkeys() )
+
             with codecs.open(FILE_MAIN,'w','utf-8') as f:
             #with open(FILE_MAIN,"w") as f:
                 for [id,stop] in stop_id.iteritems():

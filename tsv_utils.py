@@ -136,6 +136,13 @@ def say( s = '', arg = None ):
 def say_cp866( s ):
     print str_encode( s, 'cp866' )
 
+def TODO( mark, fatal=False ):
+    import inspect
+    frame = inspect.stack()[1]
+    say( "%s at %s:%s", (mark, frame[1], frame[2]) )
+    if fatal:
+        exit(1)
+
 def getinput( s ):
     if s:
         s = str_transcode(s,scriptencoding,'cp866')
@@ -205,45 +212,6 @@ def getWinSysArgv( delFirst = True ):
 ################################################################
 #		CONFIG/DATA FILES MANIPULATE
 ################################################################
-CONFIG={}
-def load_config_lines( lines ):
-    global CONFIG
-    VALUES={ 'true':True, 'false':False, 'none':None }  #, 'month': 'month', 'year': 'year', 'id':'id'
-    #lines = map(lambda s: (s.strip().split('=') + ['']), lines )
-    loaded=[]
-    for l in lines:
-        ( key, val ) = ( l[0].strip().upper(), l[1].split('#')[0].strip() )
-        if len(key) and len(val):
-            if val.lower() in VALUES:
-                CONFIG[key] = VALUES[val.lower()]
-                ##print "VAL: %s %s" % (key, repr(CONFIG[key]))
-            elif val[0]=='"' and val[-1]=='"':
-                CONFIG[key] = (val[1:])[:-1]
-                ##print "STR\": %s %s" % (key, repr(CONFIG[key]))
-            elif val[0]=="'" and val[-1]=="'":
-                CONFIG[key] = (val[1:])[:-1]
-                ##print "STR': %s %s" % (key, repr(CONFIG[key]))
-            else:
-                try:
-                    CONFIG[key] =  int(val)
-                    ##print "INT: %s %s" % (key, repr(CONFIG[key]))
-                except:
-                    CONFIG[key] =  val
-                    ##print "DFLT: %s %s" % (key, repr(CONFIG[key]))
-            loaded.append(key)
-
-    if len(loaded):
-        print "Loaded values config: %s" % str(loaded)
-
-def load_config( fname ):
-    if not os.path.exists( fname ) or not os.path.isfile(fname):
-        return
-    print "Loaded config: %s" %str_cp866(fname)
-    with open(fname, "r") as f:
-        lines = f.readlines()
-    lines = filter(lambda s: not s.lstrip().startswith('#'), lines )
-    lines = map(lambda s: (s.strip().split('=',1) + ['']), lines )
-    load_config_lines( lines )
 
 # auxilary func
 def _load_splited_lines( fname, enc, tgt_enc ):
