@@ -8,7 +8,7 @@ import vk, pytube
 import config
 import vk_utils
 import tsv_utils as util
-from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError
+from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError, DBG
 from vk_utils import profiles, get_profile, make_profilehtml, make_profiletext
 
 DBGprint = util.dbg_print        # alias
@@ -214,7 +214,6 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56384;": "*EYES* ",
          }
 
-profiles = {}           # [profileid] = [firstname, lastname]
 stop_id = {}            # [profileid] = id of last saved message
 lastdel_id = {}         # [profileid] = id of last deleted message (no need to go deeper)
 last_times = {}		# [profileid] = timestamp of last saved message
@@ -492,6 +491,8 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
     min_id = -1
     util.print_mark('.')
 
+    batcher = vk_utils.BatchExecutor( vk_api )
+
     # do preload all possible related users and groups
     batch = []
     for m in lst[u'items']:
@@ -603,26 +604,11 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
 
         likes = []
         if count_likes>0:
-            res = vk_api.likes.getList( type='post', owner_id=m.get(u'owner_id',0), item_id=m.get(u'id',0), filter='likes', count=100)
-            likes = res[u'items']
-            util.TODO( str(likes) )
-            vk_utils.lazy_profile_batch += list( likes )
-            ##print "LIKES"
-            ##print res
+            batcher.likes.getList( _ID_CMD='likes:%s'%id, type='post', owner_id=m.get(u'owner_id',0), item_id=m.get(u'id',0), filter='likes', count=100)
 
         comments = {}
         if count_comments>0:
-            res = vk_api.wall.getComments( owner_id=m.get(u'owner_id',0), post_id=m.get(u'id',0), need_likes=0, count=100, preview_length=0, extended=0)
-            ##print "COMMENTS"
-            for c in res[u'items']:
-                ##print c
-                cbody = make_body( c.get(u'text',''), html )
-                body_attach, preview_attach = parse_attachment( c.get(u'attachments',[]), '', html=html )
-                cbody = _addAttach( cbody, preview, [] )
-                ct = int(m.get(u'date'))
-                cwho = get_profile( c.get(u'from_id',1) )
-                comments[ c[u'id'] ] = [ ct, cwho, cbody, c.get(u'reply_to_user',None)]
-            ##print comments
+            batcher.wall.getComments( _ID_CMD='comments:%s'%id, owner_id=m.get(u'owner_id',0), post_id=m.get(u'id',0), need_likes=0, count=100, preview_length=0, extended=0)
 
         ##print "process %s" %id
         if html:
@@ -632,6 +618,54 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
         is_only_img_attach = not( len(attach) - len( filter(lambda a: (u'photo' not in a) ,attach) ) )
         #               0time, 1who, 2body, 3comments, 4likes, 5preview, 6 is_only_img_attach
         messages[id] = [ t, who,      body, comments, likes, preview,    is_only_img_attach ]
+
+    # postprocess batch executor (quickly load comments and likes)
+    _, resMap = batcher.execute()
+
+    for key, val in resMap.iteritems():
+        t, id = key.split(':')
+        res = val[0]
+        if t=='comments':
+            for c in res[u'items']:
+                if u'from_id' in c:
+                    vk_utils.lazy_profile_batch.append( c[u'from_id'] )
+
+    for key, val in resMap.iteritems():
+        t, id = key.split(':')
+        res = val[0]
+
+        if val[1] is not None:
+            DBG.say( DBG.ERROR, "ERROR: error during execution %s - %s", [key,val[1]] )
+
+        elif t=='likes':
+            likes = res[u'items']
+            vk_utils.lazy_profile_batch += list( likes )
+            messages[int(id)][4] = likes
+            ##print "LIKES"
+            ##print res
+
+        elif t=='comments':
+            ##print "COMMENTS"
+            comments = {}
+            preview = [ ]
+            for c in res[u'items']:
+                ##print c
+                cbody = make_body( c.get(u'text',''), html )
+                body_attach, preview_attach = parse_attachment( c.get(u'attachments',[]), '', html=html )
+                cbody = _addAttach( cbody, preview, [] )
+                ct = int(m.get(u'date'))
+                cwho = get_profile( c.get(u'from_id',1) )
+                comments[ c[u'id'] ] = [ ct, cwho, cbody, c.get(u'reply_to_user',None)]
+            ##print comments
+            messages[int(id)][3] = comments
+            if preview and html:
+                base_preview = messages[int(id)][5]
+                if len(base_preview)<150:
+                    preview = makehtml( '\n'.join(preview).strip()[:150-len(base_preview)], False ).replace('\n','<BR>').replace('\t',' ')
+                    messages[int(id)][5] = '%s<BR>%s' % ( base_preview,preview)
+        else:
+            DBG.say( DBG.ERROR, "ERROR: unknown key %s", [key] )
+
     ##print "result %s"%min_id
     return min_id
 
@@ -1977,7 +2011,10 @@ def executeWALL():
         # Final write with index (in progress we do not write index because it partial and we spam with names)
         writeWall( textHandler, templateTitle,  html=isHTML, writeIndex = True )
         save_mp3_video()
-        downloadVideo( FILE_VIDEO, start_video_idx )
+        try:
+            downloadVideo( FILE_VIDEO, start_video_idx )
+        except OkExit:
+            pass
         start_video_idx = len_videolist
 
         say()
@@ -2214,6 +2251,9 @@ def executeMESSAGE():
         lastdel_id[id] = min( [ stop_id[id], int(values[1]) ] )
         last_times[id] = int(values[2])
 
+    DBG.trace("stop_id=%s", [stop_id])
+    DBG.trace("lastdel_id=%s", [lastdel_id])
+    DBG.trace("last_times=%s", [last_times])
 
     # # If nothing was stored - at least 200 days
     #if not os.path.exists( FILE_STORED ):
@@ -2266,6 +2306,7 @@ def executeMESSAGE():
             if lastdel_id[MAIN_PROFILE]<1:
 
                 if IF_DELETE>0:
+                    DBG.error("UNSAFE CLEANING!!")
                     if not CONFIG.get('MACHINE',False):
                         say( "Небезопасное удаление (вся переписка) отменено" )
                     else:
@@ -2398,14 +2439,14 @@ def executeMESSAGE():
             else:             mode="postp"
             if isinstance(stopmsg_time,str): stopmsg_time = stopmsg_time.replace('.','')
             if isinstance(lastdel_time,str): lastdel_time = lastdel_time.replace('.','')
-            logmsg= "mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), post%d" % ( mode,
+            logmsg= u"mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), post%d" % ( mode,
                                                                                 len(stored), stopmsg_time, stop_id[MAIN_PROFILE],
                                                                                 purged_cnt, lastdel_time, lastdel_id[MAIN_PROFILE],
                                                                                 len(list_to_del)-purged_cnt )
             if not CONFIG.get('MACHINE',False):
-                say( "Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
+                say( u"Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
             else:
-                say( "{MACHINE}: %s" % logmsg )
+                say( u"{MACHINE}: %s" % logmsg )
             try:
                 if not os.path.exists("./LOG"):
                     os.makedirs('./LOG')
@@ -2432,23 +2473,27 @@ def executeMESSAGE():
                     LOG_TXT_FILE = "./LOG/store-msg-%s.log"%USER_LOGIN
                     with codecs.open(LOG_TXT_FILE,'a','utf-8') as f:
                         f.write('\n'.join(to_remember+['']))
+                DBG.info( logmsg )
             except Exception as e:
                 print e
 
         # 8. Remember new borders
 
-        #print "Remember last message"
+        DBG.trace( "Remember last message" )
+        was_stop, was_last = stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]
         stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
         lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
+
+        DBG.trace("stopid: %s->%s; lastdelid: %s->%s", [was_stop, stop_id[MAIN_PROFILE], was_last, lastdel_id[MAIN_PROFILE]])
 
         FILE_MAIN_BAK = FILE_MAIN + '.bak'
         try:
             if os.path.exists(FILE_MAIN_BAK):
                 os.unlink(FILE_MAIN_BAK)
-                say("unlink%s",[FILE_MAIN_BAK])	#@tsv
+                DBG.trace("unlink%s",[FILE_MAIN_BAK])
             if os.path.exists(FILE_MAIN):
                 os.rename(FILE_MAIN,FILE_MAIN_BAK)
-                say("rename %s->%s",[FILE_MAIN,FILE_MAIN_BAK]) #@tsv
+                DBG.trace("rename %s->%s",[FILE_MAIN,FILE_MAIN_BAK])
 
             vk_utils.lazy_profile_batch += map( lambda k: util.make_int(k.split('_')[1]), stop_id.iterkeys() )
 
@@ -2456,18 +2501,23 @@ def executeMESSAGE():
             #with open(FILE_MAIN,"w") as f:
                 for [id,stop] in stop_id.iteritems():
                     f.write( "%s=%s,%s,%s,%s\n" % ( id, stop, lastdel_id.get(id,0), last_times.get(id,0), str_decode(make_profiletext(id.split('_')[1]))) )
+            with codecs.open(FILE_MAIN,'r','utf-8') as f:
+                DBG.trace(u"Writed:\n%s", [f.read()])
         except Exception as e:
-            print "ERR: %s" %str(e)
+            DBG.TODO( "ERR: %s" %str(e) )
             # rollback if anything goes wrong
             if os.path.exists(FILE_MAIN_BAK):
                 if os.path.exists(FILE_MAIN):
                     os.unlink(FILE_MAIN)
-                    say("unlink %s",[FILE_MAIN])	#@tsv
+                    DBG.trace("unlink %s",[FILE_MAIN])
                 os.rename(FILE_MAIN_BAK,FILE_MAIN)
-                say("rename %s->%s",[FILE_MAIN_BAK,FILE_MAIN])	#@tsv
+                DBG.trace("rename %s->%s",[FILE_MAIN_BAK,FILE_MAIN])
 
 
         # 9. Save MP3 and video LIST
         save_mp3_video()
-        downloadVideo( FILE_VIDEO, start_video_idx )
+        try:
+            downloadVideo( FILE_VIDEO, start_video_idx )
+        except OkExit:
+            pass
         start_video_idx = len_videolist

@@ -17,7 +17,7 @@
         text = make_profilehtml( prof_id )              - get full name of profile in html appearance
         text = make_profiletext( prof_id )              - get full name of profile in plain text appearance
 
- * 
+ *
     class BatchExecutor     - to quickly make several commands in the row
 """
 
@@ -317,7 +317,7 @@ class BatchExecutor():
             util.TODO("Exception: %s" % e)
         errors = self.vk_api.data.get('execute_errors',[])
         for ar in result:
-            print ar, type(ar)
+            ##print ar, type(ar)
             if ar[1]==False and isinstance(ar[1],type(False)):
                 if len(errors):
                     #output is {u'error_code': 15, u'method': u'photos.getAlbums', u'error_msg': u'Access denied: group photos are disabled'}

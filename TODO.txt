@@ -34,9 +34,13 @@ DONE:
 	vk_api logging
 	# if unsafe cleaning - make 'keep' action instead
 
+	Refactoring (moving out profiles to vk_utils)
+	Boost up to 10 times for updating of wall with comments/likes because of vk.utils.BatchExecutor()
+	Add tsv_utils.DBG (logging class)
+	Do not exit if say 'No' on question 'Download Video?' (some other queued tasks could be present)
+
 
 TODO:
-	try to use https://vk.com/dev/execute -> to fast restore and fast wall download (load likes, postponed load comments) + quick groupCheck (one request instead of 3)
 	do not remove messages with video on enforced remove
 
 	WHY lastdel_time,stoptime could be int?

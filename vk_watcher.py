@@ -12,10 +12,12 @@ def LoadConfig():
     more_options = { 'ALLOWED_USERS': '',           # separated by '|' list of ids of allowed to give commands users
                      'PIN':           '0000',       # pin for vk_status and vk_help
                      'PIN_COMMAND':   '',           # if given then you have to enter command like 'vk_watch3222 opt'
-                     'USER2NOTIFY':    '',
-                     'DEFAULT_USER':    '1',        # default argument "WHO" for bot commands if not given
+                     'USER2NOTIFY':   '',
+                     'DEFAULT_USER':  '1',          # default argument "WHO" for bot commands if not given
 
-                     'PYTHON_EXE':      util.TODO('DETECT CURRENT PYTHON INTERPRETER EXE'),
+                     'DOWNLOAD_OPT': '--DOWNLOAD_MP3=True --DAYBEFORE=7', # extra command line options to run vk_downlaoder
+
+                     'PYTHON_EXE':      sys.executable,
                      'VK_DOWNLOADER':   os.path.join(os.path.split(__file__)[0],'vk_downloader.py'),
                    }
 

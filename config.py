@@ -51,6 +51,7 @@ dflt_config = {
                                         # (in case of automatic store&clean message could be removed right after appearance,
                                         #so user even do not noticed about it)
     "DEL_ENFORCED":     False,      # Delete messages which are not readed yet and with attachments
+    "WALL_BACKUP":      False,      # If True then in case if number of comments was decreased make backup copy of the post
 }
 
 CONFIG={}

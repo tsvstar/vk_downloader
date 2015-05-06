@@ -15,8 +15,9 @@ def waitkey():
     util.getchar()
 
 errorFlag = True
+util.DBG.level = util.DBG.TRACE
 try:
-
+  try:
     # Set console encoding
     util.init_console()
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +26,7 @@ try:
     sysargv = util.getSysArgv()
     ARGV = util.getWinSysArgv()
 
+    util.DBG.important( u">>> RUN VK_DOWNLOADER[%x]. Cmd: %s", [os.getpid(),' '.join(ARGV) ])
 
     # ..do any util.sysargv/ARGV changes here
     #
@@ -54,6 +56,7 @@ try:
     LOGIN = myvk.VKEnterLogin()
     myvk.InitializeDir( LOGIN, WHAT )
     myvk.vk_api, myvk.me, myvk.USER_PASSWORD = vk_utils.VKSignIn( LOGIN )
+    vk_utils.vk_api = myvk.vk_api               # required for batch_preload
 
     me = myvk.me
     if config.CONFIG['APP_ID']==config.dflt_config['APP_ID']:
@@ -91,6 +94,10 @@ try:
             raise util.FatalError( util.unicformat("Действие '%s' еще не обрабатывается", WHAT ) )
         errorFlag = False
 
+  except Exception as e:
+    util.DBG.important("EXCEPTION %s for [%x]: %s\n%s", [type(e), os.getpid(), str(e), traceback.format_exc()])
+    raise
+
 except util.FatalError as e:
     util.say( unicode(e) )
     #print traceback.print_exc()     #file=sys.stdout)
@@ -103,9 +110,11 @@ except KeyboardInterrupt as e:
 except RequestException as e:
     util.say( "Ошибка сети: %s", e )
 except Exception as e:
-    print e
+    util.say( unicode(e) )
     sys.stderr.write("%s: %s\n"%(type(e), str(e)))
     print traceback.print_exc()     #file=sys.stdout)
+
+util.DBG.important( u"<<< END VK_DOWNLOADER[%x]\n", [os.getpid() ])
 
 isWaitFlag = True
 try:

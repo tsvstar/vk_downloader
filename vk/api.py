@@ -58,7 +58,7 @@ class APISession(object):
         user_login = user_login or user_email
 
 
-        self.logRequest = False                 # Should log api requests
+        self.logRequest = True                  # Should log api requests
         self.logAnswer = False                  # Should log api answers
 
         if self.logAnswer or self.logRequest:

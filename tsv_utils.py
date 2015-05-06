@@ -4,11 +4,17 @@ import os, sys, time, base64,re,codecs, types
 from msvcrt import getch
 from ctypes import *
 
+import inspect
+
 class FatalError(Exception):
     pass
 
 class OkExit(Exception):
     pass
+
+class SkipError(Exception):
+    pass
+
 
 def make_int( value, default = 0 ):
     try: return int(value)
@@ -136,13 +142,6 @@ def say( s = '', arg = None ):
 def say_cp866( s ):
     print str_encode( s, 'cp866' )
 
-def TODO( mark, fatal=False ):
-    import inspect
-    frame = inspect.stack()[1]
-    say( "%s at %s:%s", (mark, frame[1], frame[2]) )
-    if fatal:
-        exit(1)
-
 def getinput( s ):
     if s:
         s = str_transcode(s,scriptencoding,'cp866')
@@ -184,6 +183,83 @@ def confirm( prompt, choiceList = None ):
 
 ################################################################
 
+
+def TODO( mark, fatal=False ):
+    frame = inspect.stack()[1]
+    say( "%s at %s:%s", (mark, frame[1], frame[2]) )
+    if fatal:
+        exit(1)
+
+class DBG(object):
+    OFF = -1
+    IMPORTANT = 0
+    ERROR = IMPORTANT
+    INFO = 1
+    TRACE = 2
+
+    """ members """
+
+    logfile_name='./LOG/vk_downloader'
+    createdFlag = False         # If initialized with True - donot create logdir
+    level = IMPORTANT           # -1=turn off, 0-important, 1-info, 2-trace
+    fname_suffixes = ['.log', '_info.log', '_trace.log' ]
+
+    """ methods """
+
+    @staticmethod
+    def _write( fname, text ):
+        with codecs.open(fname,'ab','utf-8') as f:
+            f.write(text)
+
+    @staticmethod
+    def _log( lev, *kw, **kww ):
+        if DBG.level<lev:
+            return
+        try:
+            if not DBG.createdFlag:
+                dname = os.path.split(os.path.abspath(DBG.logfile_name))[0]
+                if not os.path.exists(dname):
+                    os.makedirs( dname )
+                DBG.createdFlag = True
+            txt = u"%s %s\n" % ( time.strftime("%d.%m %H:%M:%S"), unicformat(*kw,**kww) )
+            for lev in range(lev,3):
+                if lev<=DBG.level:
+                    DBG._write( DBG.logfile_name + DBG.fname_suffixes[lev], txt)
+        except:
+            pass
+
+    @staticmethod
+    def say( lev, *kw, **kww ):
+        say(*kw,**kww)
+        DBG._log( lev, *kw, **kww )
+
+    @staticmethod
+    def TODO( *kw, **kww ):
+        frame = inspect.stack()[1]
+        txt = unicformat(*kw,**kww)
+        txt += u" at %s:%s {%s}" % (frame[1],frame[2],fname[3])
+        DBG.say( 0, txt )
+
+    @staticmethod
+    def important( *kw, **kww ):
+        DBG._log( 0, *kw, **kww )
+
+    @staticmethod
+    def error( *kw, **kww ):
+        DBG._log( 0, *kw, **kww )
+
+    @staticmethod
+    def info( *kw, **kww ):
+        DBG._log( 1, *kw, **kww )
+
+    @staticmethod
+    def trace( *kw, **kww ):
+        DBG._log( 2, *kw, **kww )
+
+
+
+################################################################
+
 def get_args( delFirst = True ):
     size = c_int()
     ptr = windll.shell32.CommandLineToArgvW(windll.kernel32.GetCommandLineW(), byref(size))
@@ -215,13 +291,20 @@ def getWinSysArgv( delFirst = True ):
 
 # auxilary func
 def _load_splited_lines( fname, enc, tgt_enc ):
+    frame = inspect.stack()[1]
+    func_name = frame[3]
     if not os.path.exists( fname ) or not os.path.isfile(fname):
+        DBG.error( "No file '%s' found at %s()", [fname,func_name] )
         return None
+    DBG.trace( "Load '%s' at %s() as '%s'/%s", [fname,func_name,enc,tgt_enc] )
     with codecs.open(fname, 'r', enc) as f:
         if tgt_enc is None:
-            return f.read().splitlines()
+            rv = f.read().splitlines()
         else:
-            return str_encode( f.read(), tgt_enc ).splitlines()
+            rv = str_encode( f.read(), tgt_enc ).splitlines()
+    if func_name!='load_data_file':
+        DBG.trace( u"CONTENT:\n%s", u'\n'.join(rv))
+    return rv
 
 #
 # load plain data file
@@ -262,6 +345,11 @@ def save_data_file( fname, lst, sep = '\t', enc='utf-8', src_enc = None ):
             else:
                 f.write( str_decode( sep.join(l), src_enc ) + u'\n' )
 
+    if DBG.level >= DBG.TRACE:
+        DBG.trace("save_data_file('%s',%s)"% [fname,lst])
+        with codecs.open(fname,'rb',enc) as f:
+            DBG.trace( u"%s", [f.read()] )
+
 #
 # load dictionary file ( default: key=val1|val2| )
 #       enc - encoding of file
@@ -299,6 +387,11 @@ def save_dict_file( fname, d, key_sep = "\t", val_sep = "|", enc="utf-8", src_en
                 f.write( "%s%s%s\n" %(k,key_sep,v) )
             else:
                 f.write( str_decode( "%s%s%s\n" %(k,key_sep,v) ) )
+
+    if DBG.level >= DBG.TRACE:
+        DBG.trace("save_dict_file('%s',%s)"% [fname,lst])
+        with codecs.open(fname,'rb',enc) as f:
+            DBG.trace( u"%s", [f.read()] )
 
 
 ################################################################
