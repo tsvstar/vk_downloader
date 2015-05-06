@@ -9,6 +9,7 @@ import config
 import vk_utils
 import tsv_utils as util
 from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError
+from vk_utils import profiles, get_profile, make_profilehtml, make_profiletext
 
 DBGprint = util.dbg_print        # alias
 
@@ -220,83 +221,11 @@ last_times = {}		# [profileid] = timestamp of last saved message
 
 re_xmlref = re.compile("&#[0-9]+;")
 
-lazy_profile_batch = []
-
-# AUXILARY FUNCTION
-def _add_profile( id, answ ):
-    if id in profiles:
-        return
-    v = []
-    if id >= 0:
-        v.append( str_encode( answ[u'first_name'] ) )
-        v.append( str_encode( answ[u'last_name'] ) )
-    else:
-        title = answ.get( u'name', answ.get(u'screen_name', 'group%s'%(-id)) )
-        v.append( str_encode( title ) )
-        v.append( '' )
-    profiles[id] = v
-
-# GET (AND LOAD IF NEEDED) PROFILE BY ID
-def get_profile( id ):
-    try: id = int(id)
-    except: pass
-
-    if id in profiles:
-        return id
-
-    if lazy_profile_batch:
-        batch_preload( set(lazy_profile_batch) )
-        globals()['lazy_profile_batch'] = []
-        return get_profile( id )
-
-    if id >= 0:
-        p = vk_api.users.get( user_id=id )
-    else:
-        p = vk_api.groups.getById( group_id=-id )
-    _add_profile( id, p[0] )
-    ##print "profile %s"%id
-    return id
-
-# PRELOAD PROFILE CACHE
-def batch_preload( preload, isGroup = None ):
-    ##dbg_print( 6, "BATCH %s %s" % ( isGroup, str(preload) ) )
-    preload = filter( lambda i: i not in profiles, preload )
-    if len(preload)==0:
-        return
-
-    if isGroup is None:
-        #try: preload = map(lambda v: int(v), preload)
-        #except: pass
-        batch_preload( filter( lambda i: i>=0, preload), False )
-        batch_preload( filter( lambda i: i<0,  preload), True )
-        return
-
-    if len(preload)>500:
-        preload = list(preload)
-        batch_preload(preload[:495])
-        batch_preload(preload[495:])
-        return
-
-    if isGroup:
-         answ = vk_api.groups.getById( group_ids = ','.join(map(lambda i: str(abs(i)),preload)) )
-    else:
-         answ = vk_api.users.get( user_ids = ','.join(map(str,preload)) )
-    for item in answ:
-        id = int(item[u'id'])
-        _add_profile( -id if isGroup else id, item )
-
 def get_duration( val ):
     val = int(val)
     m = int(val/60)
     s = val%60
     return  "%s:%02d"%( m, s )
-
-def make_profilehtml( prof_id ):
-    prof_id = int(prof_id)
-    return '<A HREF="https://vk.com/id%d" class=b>%s</A>' % ( prof_id, ' '.join(profiles[get_profile(prof_id)]) )
-
-def make_profiletext( prof_id ):
-    return ' '.join(profiles[get_profile(prof_id)])
 
 def make_body( body, html ):
     body = str_encode(body)
@@ -552,7 +481,7 @@ def parse_attachment( attach, pre, html = False ):
 
 #  GET MESSAGES
 def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None ):
-    global CURMSG_TIME, lazy_profile_batch
+    global CURMSG_TIME
 
     # set defaults
     stop_id[MAIN_PROFILE] = stop_id.get(MAIN_PROFILE,0)
@@ -579,7 +508,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
                 hist = a.get( u'copy_history', [a] )[0]
                 fromid = hist.get( u'from_id', 0 )
                 batch.append( util.make_int(fromid) )
-    lazy_profile_batch += batch
+    vk_utils.lazy_profile_batch += batch
 
     # main cycle
     #print lst
@@ -677,7 +606,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             res = vk_api.likes.getList( type='post', owner_id=m.get(u'owner_id',0), item_id=m.get(u'id',0), filter='likes', count=100)
             likes = res[u'items']
             util.TODO( str(likes) )
-            lazy_profile_batch += list( likes )
+            vk_utils.lazy_profile_batch += list( likes )
             ##print "LIKES"
             ##print res
 
@@ -1036,7 +965,7 @@ def PreprocessLoadQueue():
     for load in load_queue:
        if load[0]=='group' or load[1]<0: preload.append(-abs(load[1]))
        elif load[0]=='user':  preload.append(load[1])
-    batch_preload( preload )
+    vk_utils.batch_preload( preload )
 
     # FINALIZE PREPROCESSING
     for idx in range(0,len(load_queue)):
@@ -1734,7 +1663,7 @@ def executeMP3():
 
 def executeWALL():
     global load_queue, MAIN_PROFILE, IF_DELETE, start_video_idx
-    global list_to_del, messages, lazy_profile_batch
+    global list_to_del, messages
     global cacheHandler, MSG_CACHE, MSG_CACHE_FILES
 
     say( "\nНастройки сохранения стены:" )
@@ -2030,7 +1959,7 @@ def executeWALL():
                 break
             preload  = map( lambda item:  int(item[u'id']), res[u'profiles'] )
             preload += map( lambda item: -int(item[u'id']), res[u'groups'] )
-            lazy_profile_batch += preload
+            vk_utils.lazy_profile_batch += preload
 
             if isHTML and CONFIG['WALL_QUICKUPDATE']:
                 get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler )
@@ -2521,7 +2450,7 @@ def executeMESSAGE():
                 os.rename(FILE_MAIN,FILE_MAIN_BAK)
                 say("rename %s->%s",[FILE_MAIN,FILE_MAIN_BAK]) #@tsv
 
-            globals()['lazy_profile_batch'] += map( lambda k: util.make_int(k.split('_')[1]), stop_id.iterkeys() )
+            vk_utils.lazy_profile_batch += map( lambda k: util.make_int(k.split('_')[1]), stop_id.iterkeys() )
 
             with codecs.open(FILE_MAIN,'w','utf-8') as f:
             #with open(FILE_MAIN,"w") as f:

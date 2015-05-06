@@ -11,9 +11,14 @@
         VKSaveToken( vk_api, FILE_AUTH )           - store token after authorization
 
  * Profiles cache:
-        TODO - move this
+        profiles = { int_id: [ first_name, last_name] } - contain actually loaded profiles info
+        prof_id = get_profile( prof_id )                - load info about user/group profile if not exists
+        batch_preload( preload, isGroup = None )        - load info about multiple profiles
+        text = make_profilehtml( prof_id )              - get full name of profile in html appearance
+        text = make_profiletext( prof_id )              - get full name of profile in plain text appearance
 
-
+ * 
+    class BatchExecutor     - to quickly make several commands in the row
 """
 
 
@@ -22,6 +27,13 @@ import config, tsv_utils as util
 
 # Cache of secondary login
 secondary = { 'vk_api': None, 'me': None, 'USER_PASSWORD': '' }
+
+"""
+===============================================
+*           AUTHORIZATION FUNCTIONS           *
+===============================================
+"""
+
 
 
 """========================================="""
@@ -172,3 +184,159 @@ def VKSignIn( USER_LOGIN, interactive = True ):
         raise util.FatalError('Ошибка авторизации - неверный пароль')
 
   return vk_api, me, USER_PASSWORD
+
+
+
+"""
+===============================================
+*           PROCESSING PROFILES               *
+===============================================
+"""
+
+profiles = {}
+lazy_profile_batch = []
+
+# AUXILARY FUNCTION
+def _add_profile( id, answ ):
+    if id in profiles:
+        return
+    v = []
+    if id >= 0:
+        v.append( util.str_encode( answ[u'first_name'] ) )
+        v.append( util.str_encode( answ[u'last_name'] ) )
+    else:
+        title = answ.get( u'name', answ.get(u'screen_name', 'group%s'%(-id)) )
+        v.append( util.str_encode( title ) )
+        v.append( '' )
+    profiles[id] = v
+
+# GET (AND LOAD IF NEEDED) PROFILE BY ID
+def get_profile( id ):
+    try: id = int(id)
+    except: pass
+
+    if id in profiles:
+        return id
+
+    if lazy_profile_batch:
+        batch_preload( set(lazy_profile_batch) )
+        globals()['lazy_profile_batch'] = []
+        return get_profile( id )
+
+    if id >= 0:
+        p = vk_api.users.get( user_id=id )
+    else:
+        p = vk_api.groups.getById( group_id=-id )
+    _add_profile( id, p[0] )
+    ##print "profile %s"%id
+    return id
+
+# PRELOAD PROFILE CACHE
+def batch_preload( preload, isGroup = None ):
+    ##dbg_print( 6, "BATCH %s %s" % ( isGroup, str(preload) ) )
+    preload = filter( lambda i: i not in profiles, preload )
+    if len(preload)==0:
+        return
+
+    if isGroup is None:
+        #try: preload = map(lambda v: int(v), preload)
+        #except: pass
+        batch_preload( filter( lambda i: i>=0, preload), False )
+        batch_preload( filter( lambda i: i<0,  preload), True )
+        return
+
+    if len(preload)>500:
+        preload = list(preload)
+        batch_preload(preload[:495])
+        batch_preload(preload[495:])
+        return
+
+    if isGroup:
+         answ = vk_api.groups.getById( group_ids = ','.join(map(lambda i: str(abs(i)),preload)) )
+    else:
+         answ = vk_api.users.get( user_ids = ','.join(map(str,preload)) )
+    for item in answ:
+        id = int(item[u'id'])
+        _add_profile( -id if isGroup else id, item )
+
+
+def make_profilehtml( prof_id ):
+    prof_id = int(prof_id)
+    return '<A HREF="https://vk.com/id%d" class=b>%s</A>' % ( prof_id, ' '.join(profiles[get_profile(prof_id)]) )
+
+def make_profiletext( prof_id ):
+    return ' '.join(profiles[get_profile(prof_id)])
+
+
+"""
+===============================================
+        QUICK PROCESSING USING VKScript
+
+  Usage sample:
+    batcher = vk_utils.BatchExecutor(myvk.vk_api)
+    batcher.users.get(id=myvk.me)
+    batcher.messages.restore(message_id=409027, _ID_CMD='restore:%s'%40927 )
+    res,resmap = batcher.execute()
+
+===============================================
+"""
+
+class BatchExecutor():
+    def __init__( self, vk_api ):
+        self.vk_api = vk_api
+        self.commands = []          # list of triples [ ["cmd:ID", method, kww] ]
+        self.result = []            # list of pairs [ ["cmd:ID", answer, errorCode] ]
+        self.resultMap = {}         # map: {"cmd:ID": [answer,errorCode]}
+
+    def execute( self ):
+        self.result = []
+        self.resultMap = {}
+
+        while (len(self.commands)>25):
+            self._execute(self.commands[:25])
+            self.commands = self.commands[25:]
+        self._execute(self.commands[:25])
+
+        for id, answer, err in self.result:
+            self.resultMap[id] = [answer,err]
+        return self.result, self.resultMap
+
+    def _execute( self, cmd_list,  ):
+        if not cmd_list:
+            return
+
+        code = "var output=[];\n"
+        for idx in range(0,len(cmd_list)):
+            code += ' var info_%s = API.%s(%s);\n' % (idx,cmd_list[idx][1],repr(cmd_list[idx][2]))
+            code += ' output = output + [ ["%s",info_%s,%s] ];\n' % ( cmd_list[idx][0], idx, idx )
+        code += "return {output:output}; "
+
+        try:
+            result = self.vk_api.execute( code = code.replace("'",'"') ).get('output',[])
+        except Exception as e:
+            util.TODO("Exception: %s" % e)
+        errors = self.vk_api.data.get('execute_errors',[])
+        for ar in result:
+            print ar, type(ar)
+            if ar[1]==False and isinstance(ar[1],type(False)):
+                if len(errors):
+                    #output is {u'error_code': 15, u'method': u'photos.getAlbums', u'error_msg': u'Access denied: group photos are disabled'}
+                    ar[2]=errors.pop(0)
+                else:
+                    ar[2]=None
+                    util.TODO('Unexepected end of errors list')
+            else:
+                ar[2]=None
+        self.result += result
+
+    def __getattr__(self, method_name):
+        return vk.api.APIMethod(self, method_name)
+
+    def __call__(self, method_name, **kww):
+        #if '_ID_CMD' not in kww:
+        #    raise util.FatalError('No _ID_CMD defined for batch command')
+        ID_CMD = kww.pop('_ID_CMD', None)
+        if ID_CMD is None:
+            ID_CMD = "%s:%s" % ( method_name, repr(kww).replace("'",""))
+
+        self.commands.append( [ID_CMD, method_name, kww ] )

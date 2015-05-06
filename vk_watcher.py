@@ -1,3 +1,4 @@
+# coding=utf8
 import os, sys, time, base64,re,codecs, subprocess,random,re
 import vk
 
@@ -88,36 +89,58 @@ def ScanCommands( handler ):
             continue
 
         res = fname.lower().split('_')
-        handler( fname, res )
+        if handler( fname, res ):
+            break
 
-def CommandSetStatus( cmd ):
-    pass
+def CommandSetStatus( fname, cmd ):
+    cmd = [ cmd[1], cmd[0] ] + cmd[2:]                              # change the order to reversed ( STATE _ COMMAND _ WHO _EXTRA )
+    opposite_cmd = ['off' if (cmd[0]=='on') else 'on'] + cmd[1:]
+    fname_old, fpath, fpath_opposite = fname, getPath('_'.join(cmd)), getPath('_'.join(opposite_cmd))
+    fpath_old = getPath(fname_old)
 
-def HandlerPostponed( fname, res ):
+    # a) if cmd already in required state - just skip
+    if os.path.exists( fpath ) :
+        pass
+    # b) if exists opposite state command - rename it
+    elif os.path.exists( fpath_opposite ):
+        os.rename( fpath_opposite, fpath )
 
-    # check for posponed actions
-    if res[0]=='time' and len(res)>3:
-        t = util.make_int(res[1])
+    # c) if given and exists fname (for example comes as time_*) - rename it
+    elif fname_old and os.path.exists( fpath_old ):
+        os.rename( fpath_old, fpath )
+
+    # d) otherwise - create a new file
+    else:
+        with open( fpath, 'wb' ) as f:
+            pass
+
+    # clean up
+    if fname_old and os.path.exists( fpath_old ):
+        os.unlink( fpath_old )
+
+# check for posponed actions
+def HandlerPostponed( fname, cmd ):
+
+    if cmd[0]=='time' and len(cmd)>3:
+        t = util.make_int(cmd[1])
         if (t>now):
-            continue
-
-        res = res[2:]
-        opposite_res = ['off' if (res[0]=='on') else 'on'] + res[1:]
-        fname_old, fname, fname_opposite = fname, '_'.join(res), '_'.join(opposite_res)
-        if os.path.exists( getPath(fname) ) :
-            os.unlink( getPath(fname_old) )
-        elif os.path.exists( getPath(fname_opposite) ):
-            os.rename( getPath(fname_opposite), getPath(fname) )
-            os.unlink( getPath(fname_old) )
+            return
+        cmd = cmd[2:]                       # cutoff time_TIMESTAMP
+        cmd = [ cmd[1], cmd[0] ] + cmd[2:]  # change the order to regular ( CMD _ STATE _ WHO _EXTRA )
+        maincmd, isWatcher = getCommand( cmd[0] )
+        if isWatcher:
+            CommandSetStatus( fname, cmd )
+            CommandLog( cmd, status = None )
         else:
-            os.rename( getPath(fname_old), getPath(fname) )
+            CommandExecute( cmd, mode = 'postponed' )
+    return False
 
 
 def HandlerCheck( fname, res ):
 
-    # skip turned off actions
-    if res[0]=='off':
-        continue
+    # skip postponed
+    if cmd[0]=='time' and len(cmd)>3:
+        return False
 
     if res[0]=='cfg':
         if res[1]=='defaultuser':
@@ -128,30 +151,58 @@ def HandlerCheck( fname, res ):
                 print "Wrong %s - not integer" % fname
             continue
 
-    if not res[0]=='on':
-        util.say( "ERROR: unknown format file: %s", [fname] )
-        continue
+    # skip on/off actions
+    if len(res)>2 and  res[0] in ('off','on'):
+        return False
+
+    util.say( "ERROR: unknown format file: %s", [fname] )
+
+
 
 ScanCommands( HandlerPostponed )
 ScanCommands( HandlerCheck )
 
-COMMAND_PROCESSORS = { 'vk_keep':  cmdKeep,
-                       'vk_store': cmdKeep,
-                       'vk_clean': cmdClean,
-                       'vk_del':   cmdClean,
+def cmdKeep( res, **kww ):
+    if kww.get('checkWatcher',False):
+        return False            # this is not watch command
+    util.TODO('cmdKeep main job')
 
-                       'vk_status'+str(config.CONFIG.get('PIN','')): cmdStatus,
-                       'vk_help' +str(config.CONFIG.get('PIN','')): cmdHelp,
+COMMAND_PROCESSORS = { 'keep':  'store',
+                       'store': cmdKeep,
+                       'clean': cmdClean,
+                       'del':   'clean',
 
-                       'vk_autoclean': cmdAutoClean,
-                       'vk_autodel': cmdAutoDel,
-                       'vk_watch': cmdWatchGroup,
+                       'autoclean': cmdAutoClean,
+                       'autodel': 'autoclean',
+                       'watch': cmdWatchGroup,
                      }
+
+
+def getCommand( res ):
+    cmd = res[0]
+    if cmd not in COMMAND_PROCESSORS:
+        raise SkipError()
+        util.say( "ERROR: unknown command from msg - %s", [cmdline] )
+        return None
+
+    main_cmd = COMMAND_PROCESSORS[ cmd ] if isinstance( COMMAND_PROCESSORS[ cmd ], basestring ) else cmd
+    isWatcher = COMMAND_PROCESSORS[maincmd]( [cmd], checkWatcher=True )
+    min_size = 3 if isWatcher else 2
+    if len(cmd_ar)<min_size:
+        cmd_ar.append( config.CONFIG['DEFAULT_USER'] )
+    return main_cmd, isWatcher
+
 
 
 commands = []
 res =  vk_api.messages.getHistory( offset=0, count = 30, user_id = me, rev = 1 )
 re_postponed = re.compile("/ *([0-9]+)([hm])$", re.IGNORECASE)
+
+flagHelp = flagStatus = False
+
+logMessage = []
+import collections
+executedCmd = collections.OrderedDict()     # ['cmd' = status]
 for item in res[u'items']:
     body = item.get(u'body','').strip().lower()
     if not body.startswith('vk_'):
@@ -168,24 +219,50 @@ for item in res[u'items']:
         if not cmd.startswith('vk_'):
             continue
 
+        # If given
         match = re_postponed.search(cmd)
         if match:
-            cmd = cmd[:-len(match.group(0))].strip()
-            mult = 3600 if match.group(2).lower()=='h' else 60
-            ts = now + util.make_int(match.group(1))*mult
+            cmd = cmd[:-len(match.group(0))].strip()                # cut off posponed suffix
+            mult = 3600 if match.group(2).lower()=='h' else 60      # detect min/hour multiplier
+            ts = now + util.make_int(match.group(1))*mult           # get target timestamp
+
+            res = cmd.split()
+            maincmd, isWatcher = getCommand( res )
+            if isWatcher:
+                status = checkStatus( cmd )
+                if status==cmd[1]:
+                    raise SkipError("Already %s status"%status)
+                CommandSetStatus( )
+
+
+                # apply command
+                # clean
+
+            #if not maincmd( res, checkWatcher=True ):
+            #    raise SkipError('Only watchers could be postponed')
+
             # apply command
             # clean all other such postponed commands
             # add opposite command
             util.TODO('do postponed command')
+            logMessage = ['%s (until %s)' % ( ' '.join(cmd),
+                                              time.strftime( '%d.%m %H:%M', time.localtime(ts) ) ) ]
             continue
 
         res = cmd.split()
-        if res[0] not in COMMAND_PROCESSORS:
-            util.say( "ERROR: unknown command from msg - %s", [cmd] )
-            continue
+        # status and help commands are executed not in the time
+        if res[0].endswith(config.CONFIG.get('PIN','')):
+            if res[0].startswith('vk_status'):
+                flagStatus = True
+                continue
+            if res[0].startswith('vk_help'):
+                flagHelp = True
+                continue
+
+        maincmd = getCommand( res[0] )
 
         util.TODO( 'processing of commands (import, add globals, use defaults)' )
-        COMMAND_PROCESSORS[res[0]]( res )
+        COMMAND_PROCESSORS[maincmd]( res )
 
     vk_api.messages.delete( message_ids=delMsgId )
 
@@ -383,3 +460,46 @@ if not processed:
 #os.unlink(LOCKFILE)
 sys.exit()
 
+
+"""
+
+...
+if (parseInt(photo_items[index].photo_2560.length) > 0)
+{
+    photo_list = photo_list + [photo_items[index].photo_2560];
+}
+...
+else if (parseInt(photo_items[index].photo_75.length) > 0)
+{
+    photo_list = photo_list + [photo_items[index].photo_75];
+}
+...
+
+Ну и напоследок полный код функции:
+
+
+var owner_id = 8296250;
+var album_id = 211849784;
+
+var output = [];
+var user_info = API.users.get({user_ids:owner_id});
+var owner_name = user_info@.first_name[0] + " " + user_info@.last_name[0];
+output = output +[ ["owner_name",0, owner_name] ];
+
+var album = API.photos.getAlbums({owner_id: owner_id, album_ids: album_id});
+output = output +["album",0,"album_body"];
+
+var photo_items = API.photos.get({album_id: album_id, owner_id: owner_id}).items;
+output = output +["photo_items",0,photo_items];
+
+var index = 0;
+while (index < 20 )
+{
+    var id =  owner_id + "_" + photo_items[index].id;
+    var value = API.photos.getById({photos: id});
+    output = output + ["ID", id, value];
+    index = index + 1;
+}
+
+return {output: output};
+"""

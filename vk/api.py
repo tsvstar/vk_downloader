@@ -28,14 +28,14 @@ TOO_MANY_REQUESTS = 6
 """ ========== DEBUG =============== """
 
 import os, codecs, time,traceback
-if not os.path.exists('./LOG'):
-    os.makedirs('./LOG')
 
-def SayToLog( text ):
+def SayToLog( text, tracebackLog = True ):
     #return
     with codecs.open('./LOG/vk_api.log','ab','utf-8') as f:
         ts = time.strftime("%d.%m.%y %H:%M:%S")
         f.write( "%s [%05x] %s\n" % (ts, os.getpid(), text ) )
+        if not tracebackLog:
+            return
         for stack in list(reversed(traceback.extract_stack()))[3:-2]:
           f.write("\t%s:%s\t%s %s\n"%stack)
           #f.write("\t%s:%s\t%s\n"%(stack[0],stack[1],stack[2]))
@@ -57,7 +57,14 @@ class APISession(object):
 
         user_login = user_login or user_email
 
-        SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s)" % (access_token, user_login, timeout) )
+
+        self.logRequest = False                 # Should log api requests
+        self.logAnswer = False                  # Should log api answers
+
+        if self.logAnswer or self.logRequest:
+            if not os.path.exists('./LOG'):
+                os.makedirs('./LOG')
+            SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s)" % (access_token, user_login, timeout) )
 
         if (not user_login or not user_password) and not access_token:
             raise ValueError('Arguments user_login and user_password, or access_token are required')
@@ -195,7 +202,8 @@ class APISession(object):
 
         if self.show_blink:
             self.print_blink( '?' if self.wasErrorFlag else None )
-        SayToLog( "%s %s(%s)" % ( ( '?' if self.wasErrorFlag else '' ), method_name, str(method_kwargs) ) )
+        if self.logRequest:
+            SayToLog( "%s %s(%s)" % ( ( '?' if self.wasErrorFlag else '' ), method_name, str(method_kwargs) ) )
         ##print method_name
         ##print "%s(%s)" % (method_name, repr(method_kwargs))
         response = self.method_request(method_name, **method_kwargs)
@@ -207,6 +215,8 @@ class APISession(object):
         errors = []
         error_codes = []
         for data in json_iter_parse(response.text):
+            if self.logAnswer:
+                SayToLog( "%s %s" %(method_name, data), tracebackLog = False )
             if 'error' in data:
                 error_data = data['error']
                 if error_data['error_code'] == CAPTCHA_IS_NEEDED:
@@ -223,6 +233,7 @@ class APISession(object):
                 self.wasErrorFlag = False
 
                 # return make_handy(data['response'])
+                self.data = data
                 return data['response']
 
         if INTERNAL_SERVER_ERROR in error_codes:  # invalid access token
