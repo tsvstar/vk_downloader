@@ -17,8 +17,9 @@
         text = make_profilehtml( prof_id )              - get full name of profile in html appearance
         text = make_profiletext( prof_id )              - get full name of profile in plain text appearance
 
- *
+ * Batch functions:
     class BatchExecutor     - to quickly make several commands in the row
+	class CachedVKAPI		- transparent wrapper to vk.api which allow to cache query answers and
 """
 
 
@@ -273,14 +274,15 @@ def make_profiletext( prof_id ):
         QUICK PROCESSING USING VKScript
 
   Usage sample:
-    batcher = vk_utils.BatchExecutor(myvk.vk_api)
-    batcher.users.get(id=myvk.me)
+    batcher = vk_utils.BatchExecutor(vk_api)
+    batcher.users.get(id=me)
     batcher.messages.restore(message_id=409027, _ID_CMD='restore:%s'%40927 )
     res,resmap = batcher.execute()
 
 ===============================================
 """
 
+# Batch Command Executor
 class BatchExecutor():
     def __init__( self, vk_api ):
         self.vk_api = vk_api
@@ -292,23 +294,25 @@ class BatchExecutor():
         self.result = []
         self.resultMap = {}
 
+        offset = 0
         while (len(self.commands)>25):
-            self._execute(self.commands[:25])
+            self._execute(self.commands[:25], offset)
             self.commands = self.commands[25:]
-        self._execute(self.commands[:25])
+            offset += 25
+        self._execute(self.commands[:25], offset)
 
         for id, answer, err in self.result:
             self.resultMap[id] = [answer,err]
         return self.result, self.resultMap
 
-    def _execute( self, cmd_list,  ):
+    def _execute( self, cmd_list, offset ):
         if not cmd_list:
             return
 
         code = "var output=[];\n"
         for idx in range(0,len(cmd_list)):
             code += ' var info_%s = API.%s(%s);\n' % (idx,cmd_list[idx][1],repr(cmd_list[idx][2]))
-            code += ' output = output + [ ["%s",info_%s,%s] ];\n' % ( cmd_list[idx][0], idx, idx )
+            code += ' output = output + [ ["%s",info_%s,%s] ];\n' % ( cmd_list[idx][0], idx, idx+offset )
         code += "return {output:output}; "
 
         try:
@@ -340,3 +344,65 @@ class BatchExecutor():
             ID_CMD = "%s:%s" % ( method_name, repr(kww).replace("'",""))
 
         self.commands.append( [ID_CMD, method_name, kww ] )
+
+
+"""
+===============================================
+        CACHED vk_api WRAPPER
+
+  Usage sample:
+    vk_api = vk_utils.CachedVKAPI(vk_api)
+    vk_api._prepare_.users.get(id=me)                       # prepare cache - just give usual command with prefix _prepare_
+    vk_api._prepare_.messages.restore(message_id=409027)    #
+
+    vk_api.users.get(id=me)            # just use vk_api as regular one; if query was cached - cached value will be used
+
+  Any new batch preloading could be done at any moment. Cache could be cleaned using vk_api.cleanCache()
+
+===============================================
+"""
+def CachedVKAPI( object ):
+    def __init__( self, vk_api ):
+        self.vk_api = vk_api
+        self._prepare_ = BatchExecutor( vk_api )
+        self._resMap = {}
+        self._rememberUncached = False              # If True - then result of uncached requests will be cached implicitly
+                                                    # (this could cause unexpected missing call - because next calls got from cache)
+
+    # execute preparation (calls implicitly if needed)
+    def execute( self ):
+        _, resMap = self._prepare_.execute()
+        self._resMap.update( resMap )
+
+    def cleanCache( self ):
+        self._resMap = {}
+        self._prepare_.commands = []
+
+    def __getattr__(self, method_name):
+        return vk.api.APIMethod(self, method_name)
+
+    def __call__(self, method_name, **kww):
+        ID_CMD = "%s:%s" % ( method_name, repr(kww).replace("'",""))
+
+        # If not cached yet but something was added to queue - execute queue first
+        if ID_CMD not in self._resMap:
+            if self._prepare_.commands:
+                self.execute()
+
+        # If still not in the cache - execute as a single command and place result to the cache
+        if ID_CMD not in self._resMap:
+            try:
+                response = self.vk_api.__call__( method_name, **kww )
+            except vk.api.VkAPIMethodError as e:
+                if self._rememberUncached:
+                    self._resMap[ID_CMD] = [ False, e.error ]
+                raise
+            if self._rememberUncached:
+                self._resMap[ID_CMD] = [ response, None ]
+            return response
+
+        # If it is in the cache, get it and emulate execution
+        response, error = self._resMap[ID_CMD]
+        if error is None:
+            return response
+        raise vk.api.VkAPIMethodError(error)

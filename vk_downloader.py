@@ -6,7 +6,6 @@
 
 import sys,os,traceback
 import config
-import vk_utils
 import tsv_utils as util
 from requests import RequestException
 
@@ -16,6 +15,7 @@ def waitkey():
 
 errorFlag = True
 util.DBG.level = util.DBG.TRACE
+util.DBG.logfile_name = './LOG_TRACE/vk_downloader'
 try:
   try:
     # Set console encoding
@@ -48,8 +48,8 @@ try:
     util.CONFIG = config.CONFIG                                         # initialize util.CONFIG (needed to process 'MACHINE' key)
 
 
-
     # do action
+    import vk_utils
     import vk_downloader_V7 as myvk
 
     WHAT, RESTORE_FLAG, MAIN_PROFILE = myvk.Initialize()
@@ -114,7 +114,7 @@ except Exception as e:
     sys.stderr.write("%s: %s\n"%(type(e), str(e)))
     print traceback.print_exc()     #file=sys.stdout)
 
-util.DBG.important( u"<<< END VK_DOWNLOADER[%x]\n", [os.getpid() ])
+util.DBG.info( u"<<< END VK_DOWNLOADER[%x]\n", [os.getpid() ])
 
 isWaitFlag = True
 try:

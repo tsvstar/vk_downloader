@@ -29,9 +29,12 @@ TOO_MANY_REQUESTS = 6
 
 import os, codecs, time,traceback
 
+LOG_DIR = './LOG_TRACE'
+LOG_FILE = '%s/vk_api.log' % LOG_DIR
+
 def SayToLog( text, tracebackLog = True ):
     #return
-    with codecs.open('./LOG/vk_api.log','ab','utf-8') as f:
+    with codecs.open(LOG_FILE,'ab','utf-8') as f:
         ts = time.strftime("%d.%m.%y %H:%M:%S")
         f.write( "%s [%05x] %s\n" % (ts, os.getpid(), text ) )
         if not tracebackLog:
@@ -62,8 +65,8 @@ class APISession(object):
         self.logAnswer = False                  # Should log api answers
 
         if self.logAnswer or self.logRequest:
-            if not os.path.exists('./LOG'):
-                os.makedirs('./LOG')
+            if not os.path.exists(LOG_DIR):
+                os.makedirs(LOG_DIR)
             SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s)" % (access_token, user_login, timeout) )
 
         if (not user_login or not user_password) and not access_token:
