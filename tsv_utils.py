@@ -346,7 +346,7 @@ def save_data_file( fname, lst, sep = '\t', enc='utf-8', src_enc = None ):
                 f.write( str_decode( sep.join(l), src_enc ) + u'\n' )
 
     if DBG.level >= DBG.TRACE:
-        DBG.trace("save_data_file('%s',%s)"% [fname,lst])
+        DBG.trace("save_data_file('%s',%s)", [fname,lst])
         with codecs.open(fname,'rb',enc) as f:
             DBG.trace( u"%s", [f.read()] )
 
@@ -389,7 +389,7 @@ def save_dict_file( fname, d, key_sep = "\t", val_sep = "|", enc="utf-8", src_en
                 f.write( str_decode( "%s%s%s\n" %(k,key_sep,v) ) )
 
     if DBG.level >= DBG.TRACE:
-        DBG.trace("save_dict_file('%s',%s)"% [fname,lst])
+        DBG.trace("save_dict_file('%s',%s)", [fname,lst])
         with codecs.open(fname,'rb',enc) as f:
             DBG.trace( u"%s", [f.read()] )
 
