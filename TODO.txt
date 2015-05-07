@@ -26,7 +26,7 @@ TOCHECK:
 	vk cache separate_media
 
 TODO:
-	correct say in {MACHINE} msg (now it say first msg of sequence not last one)
+	correct say in {MACHINE} msg (now it say first msg of sequence not last one) --- NO IT SAY FROM WHICH IT STORE, FROM WHICH IT DEL. MAYBE GIVE RANGE?
 	add direction (</>) to {MACHINE}
 	do not remove messages with video on enforced remove
 	looks like 'restore' restore more than expected ( say 10minutes, but it restore whole row)

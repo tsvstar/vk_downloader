@@ -46,6 +46,8 @@ dflt_config = {
     'SECONDARY_LOGIN':    '',       # If defined,then use this to download video
     'SECONDARY_PWD_ENC':  '',       #
 
+    "DIR_PREFIX":       '',         # If given - use this as a prefix for directory to save
+
     'WAIT_AFTER':       True,       # If False - do not wait after finish the script
     "MACHINE":          False,      # If True - say in machine format and prevent any waiting for answer
     "KEEP_LAST_SECONDS": 0,         # Period (in seconds) from now to past to not immediate but postoponed remove
@@ -107,7 +109,7 @@ def load_config( fname ):
         return
     print "Loaded config: %s" %util.str_cp866(fname)
     with open(fname, "r") as f:
-        lines = f.readlines()
+        lines = f.read().decode('utf-8','xmlcharrefreplace').splitlines()
     lines = filter(lambda s: not s.lstrip().startswith('#'), lines )
     lines = map(lambda s: (s.strip().split('=',1) + ['']), lines )
     loaded = load_config_lines( lines )

@@ -15,8 +15,12 @@ def LoadConfig():
                      'USER2NOTIFY':   '',
                      'DEFAULT_USER':  '1',          # default argument "WHO" for bot commands if not given
 
-                     'ALIASES':     '',             # JSON-like value to make shorter and hidden names ( {1:"Д", -15:"-FM" } )
+                     'ALIASES':     {1: 'D'},       # JSON-like value to make shorter and hidden names ( {1:"Д", -15:"-FM" } )
+                     'USERS':       {'Durov':1},    # JSON-like value to give user/group in command
+
                      'DOWNLOAD_OPT': '--DOWNLOAD_MP3=True --DAYBEFORE=7', # extra command line options to run vk_downlaoder
+                     'AUTOCLEAN_OPT': '',
+                     'WATCH_OPT': '',
 
                      'PYTHON_EXE':      sys.executable,
                      'VK_DOWNLOADER':   os.path.join(os.path.split(__file__)[0],'vk_downloader.py'),
@@ -77,33 +81,25 @@ if not os.path.exists(BASEDIR):
     os.makedirs(BASEDIR)
 """
 
-vk_api, me, USER_PASSWORD = vk_utils.VKSignIn( USER_LOGIN, False )
+vk_api1, me1, USER_PASSWORD1 = vk_utils.VKSignIn( USER_LOGIN, False )
 vk_api2, me2, USER_PASSWORD2 = vk_utils.VKSignInSecondary( False )
-
 now = time.time()
 
 def getPath (fname):
     return os.path.join( DIR_MAIN, fname )
 
-def ScanCommands( handler ):
-    for fname in os.listdir(DIR_MAIN):
-        fpath = os.path.join(DIR_MAIN,fname)
-        if not os.path.isfile(fpath):
-            continue
-
-        res = fname.lower().split('_')
-        if handler( fname, res ):
-            break
 
 """ Command object """
 class CMD(object):
 
-    cmdl = []       # [list of command] normalized to [CMD, STATE, WHO, EXTRA]
+    cmdl = []       # [list of command] normalized to [0CMD, 1STATE, 2WHO, 3EXTRA]
     cmd = ""        # name of command without api suffix (autodel2 -> autodel )
     main_cmd =""    # real name of command (resolved alias: autodel -> autoclean )
     vk_api = None   # correspondend to suffix vk_api
     isWatcher = False # False if this is instant command, True if this is watcher object
     tag = ""        # tag = "CommandSuffix:WHO"
+    userid = 0
+    username = ""   # resolved user name
 
     def __init__( self, cmdl ):
         cmdl = map( str.lower, cmdl )
@@ -114,39 +110,50 @@ class CMD(object):
         self.cmd, self.vk_api = self.getCommandName( cmdl[0] )
 
         if self.cmd not in COMMAND_PROCESSORS:
-            raise SkipError("unknown command '%s'", cmdl[0])
+            raise SkipError(u"unknown command '%s'"% cmdl[0])
 
         self.main_cmd = COMMAND_PROCESSORS[ self.cmd ] if isinstance( COMMAND_PROCESSORS[ self.cmd ], basestring ) else self.cmd
         self.isWatcher = maincmd in WATCH_PROCESSORS
 
-        if self.isWatcher and len(cmdl)<2:
-            raise SkipError("no state given for command")
+        if self.isWatcher:
+            if len(cmdl)<2:
+                raise SkipError(u"no state given for command %s"%cmdl[0])
+            if cmdl[1] not in ['on','off']:
+                raise SkipError(u"wrong state '%s' given for command %s"%(cmdl[1],cmdl[0]))
 
+        # add default user
         min_size = 3 if isWatcher else 2
         if len(cmdl)<min_size:
             self.cmdl.append( config.CONFIG['DEFAULT_USER'] )
 
-        self.tag = "%s%d:%s" % ( self.main_cmd, 1 if self.vk_api==vk_api1 else 2, self.cmdl[min_size-1] )
+        # resolve to userid "who"
+        who_pos = (min_size - 1)
+        if self.main_cmd!='userdef':
+            self.userid = util.make_int( self.cmdl[who_pos], -1 )
+            if self.userid<=0:
+                if self.cmdl[who_pos] not in config.CONFIG['USERS']:
+                    raise SkipError( util.unicformat(u"Unknown user '%s' for command %s",[self.cmdl[who_pos],self.cmdl[0]]) )
+                self.userid = config.CONFIG['USERS'][self.cmdl[who_pos]]
+            self.username = config.CONFIG['ALIAS'].get( self.userid, str(self.userid) )
+            self.cmdl[who_pos] = userid
 
-    """ Normalize "cmdl" to "NORMAL" format CMD_STATE_WHO_EXTRA
-        OBSOLETE: should be applied to self
-    """
+        self.tag = "%s%d:%s" % ( self.main_cmd, 1 if self.vk_api==vk_api1 else 2, self.cmdl[who_pos] )
+
+    """ Normalize to "NORMAL" format CMD_STATE_WHO_EXTRA  """
     @staticmethod
-    def setNormalFormat( cmdl ):
-        if len(cmdl)<2 or cmdl[1].lower() not in ['on','off']:
-            return
-        cmdl = [ cmdl[1], cmdl[0] ] + cmdl[2:]
-        return cmdl
+    def setNormalFormat():
+        if not self.isWatcher or self.cmdl[1] not in ['on','off']:
+            return self.cmdl
+        self.cmdl = [ self.cmdl[1], self.cmdl[0] ] + self.cmdl[2:]
+        return self.cmdl
 
-    """ Normalize "cmdl" to "FILE" format STATE_CMD_WHO_EXTRA
-        OBSOLETE: should be applied to self
-    """
+    """ Normalize to "FILE" format STATE_CMD_WHO_EXTRA """
     @staticmethod
     def setFileFormat( cmdl ):
-        if len(cmdl)<2 or cmdl[0].lower() not in ['on','off']:
-            return
-        cmdl = [ cmdl[1], cmdl[0] ] + cmdl[2:]
-        return cmdl
+        if not self.isWatcher or self.cmdl[0] not in ['on','off']:
+            return self.cmdl
+        self.cmdl = [ self.cmdl[1], self.cmdl[0] ] + self.cmdl[2:]
+        return self.cmdl
 
     """ Parse command name and return ( name, vk_api ) """
     @staticmethod
@@ -181,96 +188,218 @@ class CMD(object):
         # d) otherwise - create a new file
         else:
             with open( fpath, 'wb' ) as f:
-                pass
+                f.write("# coding=utf8\n")
 
         # clean up
         if fname_old and os.path.exists( fpath_old ):
             os.unlink( fpath_old )
 
-    """ OBSOLETE - use __init__
-    Return (RealNameOfCmd, isWatcher, vk_api)
-        NOTE
-        TODO!!!
-    """
-    def getCommand( cmdl ):
-        cmd, api =  CMD.getCommandName( cmdl[0] )
-        if cmd not in COMMAND_PROCESSORS:
-            raise SkipError()
-            util.say( "ERROR: unknown command from msg - %s", [cmdline] )
-            return None
+class CMDPool(object):
 
-        main_cmd = COMMAND_PROCESSORS[ cmd ] if isinstance( COMMAND_PROCESSORS[ cmd ], basestring ) else cmd
-        isWatcher = maincmd in WATCH_PROCESSORS
-        min_size = 3 if isWatcher else 2
-        if len(cmdl)<min_size:
-            cmdl.append( config.CONFIG['DEFAULT_USER'] )
-        return main_cmd, isWatcher, vk_api
+    @staticmethod
+    def ScanCommands( handler ):
+        for fname in os.listdir(DIR_MAIN):
+            fpath = os.path.join(DIR_MAIN,fname)
+            if not os.path.isfile(fpath):
+                continue
+
+            res = fname.lower().split('_')
+            if handler( fname, res ):
+                break
+
+    """!TODO!"""
+    # check for posponed actions
+    def HandlerPostponed( fname, cmd ):
+
+        if cmd[0]=='time' and len(cmd)>3:
+            t = util.make_int(cmd[1])
+            if (t>now):
+                return
+            cmd = cmd[2:]                       # cutoff time_TIMESTAMP
+            CMD.setNormalFormat(cmd)
+            maincmd, isWatcher = getCommand( cmd[0] )
+            if isWatcher:
+                CommandSetStatus( fname, cmd )
+                CommandLog( cmd, status = None )
+            else:
+                CommandExecute( cmd, mode = 'postponed' )
+        return False
+
+    """!TODO!"""
+    def HandlerCheck( fname, res ):
+
+        # skip postponed
+        if cmd[0]=='time' and len(cmd)>3:
+            return False
+
+        if res[0]=='cfg':
+            if res[1]=='defaultuser':
+                try:
+                    with open( getPath(fname), 'rb' ) as f:
+                        config.CONFIG['DEFAULT_USER']= int(f.read().strip())
+                except Exception as e:
+                    print "Wrong %s - not integer" % fname
+                continue
+
+        # skip on/off actions
+        if len(res)>2 and  res[0] in ('off','on'):
+            return False
+
+        util.say( "ERROR: unknown format file: %s", [fname] )
 
 
-# check for posponed actions
-def HandlerPostponed( fname, cmd ):
+import vk_watcher_modules
 
-    if cmd[0]=='time' and len(cmd)>3:
-        t = util.make_int(cmd[1])
-        if (t>now):
+class CmdHandlers(object):
+    @staticmethod
+    def cmdStatus( cmd_obj, current_frame ):
+        current_frame[2]= True
+        if flags.get('vk_status',False):
+            current_frame[0]=None
             return
-        cmd = cmd[2:]                       # cutoff time_TIMESTAMP
-        CMD.setNormalFormat(cmd)
-        maincmd, isWatcher = getCommand( cmd[0] )
-        if isWatcher:
-            CommandSetStatus( fname, cmd )
-            CommandLog( cmd, status = None )
+        flags['vk_status'] = True
+
+    @staticmethod
+    def cmdHelp( cmd_obj, current_frame ):
+        current_frame[2]= True
+        if flags.get('vk_help',False):
+            current_frame[0]=None
+            return
+        flags['vk_help'] = True
+        text = """
+vk_statusPIN
+vk_keep|vk_clean [WHO]           =
+vk_join|vk_leave [WHO]           = join/leave group
+vk_autoclean[1|2] on|off [WHO]   = periodic vk_clean(on)/vk_keep(off)
+vk_watch[1|2] on|off [WHO]       = watch wall/ph/video/audio
+vk_userdef[1|2] on|off [WHO] EXTRA = control userdefined modules
+... /XX[m|h] - postponed command (todo)
+... @ - silent command
+        """.strip()
+        vk_api1.messages.send( user_id=int(me1), message='vk:\n'+text )
+
+    @staticmethod
+    def cmdSetWatcher( cmd_obj, current_frame ):
+        try:
+            # need 'file' format
+            cmd_obj.setFileFormat()
+            # ensure that resolved command with suffix is used
+            cmd_obj.cmdl[1] = cmd_obj.main_cmd + ('2' if cmd_obj.vk_api==vk_api2 else '1')
+            # set status
+            cmd_obj.CommandSetStatus( None, cmd_obj.cmdl )
+        finally:
+            cmd_obj.setNormalFormat()
+
+    @staticmethod
+    def cmdJoinLeave( cmd_obj, current_frame ):
+        if cmd_obj.cmdl[0]=='join':
+            cmd_obj.vk_api.groups.join(group_id=cmd)
         else:
-            CommandExecute( cmd, mode = 'postponed' )
-    return False
+            cmd_obj.vk_api.groups.leave(group_id=cmd)
 
+    @staticmethod
+    def cmdMsgDload( cmd_obj, current_frame ):
+        IF_DELETE = 1 if cmd_obj.cmdl[0]=='clean' else -1
+        tag = "msg:%s" % cmd_obj.userid
+        if tag in flags:
+            current_frame[1] = "already done"
+        #RunMainScript( cmd )
+        text = ExecuteCheck( IF_DEL )   # ExecuteMainScriptAsMachine()
 
-def HandlerCheck( fname, res ):
-
-    # skip postponed
-    if cmd[0]=='time' and len(cmd)>3:
-        return False
-
-    if res[0]=='cfg':
-        if res[1]=='defaultuser':
-            try:
-                with open( getPath(fname), 'rb' ) as f:
-                    config.CONFIG['DEFAULT_USER']= int(f.read().strip())
-            except Exception as e:
-                print "Wrong %s - not integer" % fname
-            continue
-
-    # skip on/off actions
-    if len(res)>2 and  res[0] in ('off','on'):
-        return False
-
-    util.say( "ERROR: unknown format file: %s", [fname] )
-
-
-
-ScanCommands( HandlerPostponed )
-ScanCommands( HandlerCheck )
-
-def cmdKeep( res, **kww ):
-    if kww.get('checkWatcher',False):
-        return False            # this is not watch command
-    util.TODO('cmdKeep main job')
+        if not current_frame[2]:
+            vk_api1.messages.send( user_id=int(me1), message='vk: '+text )
+        current_frame[2]= True
 
 COMMAND_PROCESSORS = { 'keep':  'store',
-                       'store': cmdKeep,
-                       'clean': cmdClean,
+                       'store': cmdMsgDload,
+                       'clean': cmdMsgDload,
                        'del':   'clean',
+                       'join':  cmdJoinLeave,
+                       'leave': cmdJoinLeave,
+                       'status'+config.CONFIG.get('PIN',''): cmdStatus,
+                       'help'+config.CONFIG.get('PIN',''):   cmdHelp,
 
-                       'autoclean': cmdAutoClean,
-                       'autodel': 'autoclean',
-                       'watch': cmdWatchGroup,
+                       'autoclean':  cmdSetWatcher,
+                       'autodel':    'autoclean',
+                       'watch':      cmdSetWatcher,
+                       'backupwall': cmdSetWatcher,
                      }
 
-WATCH_PROCESSORS = {    'autoclean': AutoCleanWatcher,
-                        'userdef':  DefaultWatcher,
-                        'watch':    GroupWatcher,
+WATCH_PROCESSORS = {    'autoclean': vk_watcher_modules.AutoCleanWatcher,
+                        'userdef':   vk_watcher_modules.DefaultWatcher,
+                        'watch':     vk_watcher_modules.GroupWatcher,
+                        #'backupwall': vk_watcher_modules.BackupWall,
                    }
 
+
+
+import collections
+
+
+def main():
+    global commands, logMessage, toDelMsgIds, flags, executedCmd
+
+    flags = {}              # any kind of common flags (already done executed)
+    commands = []           # [ [0CMD, 1msg, 2silence], ... ]
+    logMessage = []
+    toDelMsgIds = set()
+
+    try:
+        # Execute posponed commands
+        CMDPool.ScanCommands( CMDPool.HandlerPostponed )
+        CMDPool.ScanCommands( CMDPool.HandlerCheck )
+
+        executedCmd = collections.OrderedDict()     # ['cmd' = status]
+
+        # Scan incoming messages to get commands
+        res =  vk_api.messages.getHistory( offset=0, count = 30, user_id = me, rev = 1 )
+        for item in res[u'items']:
+            body = item.get(u'body','').strip().lower()
+            if not body.startswith('vk_'):
+                continue
+
+            delMsgId = item.get(u'id',0)
+            lst = map(str.strip, body.split('\n') )
+            for cmd in lst:
+                if not cmd.startswith('vk_'):
+                    continue
+                toDelMsgIds.add( delMsgId )
+                silence = cmd.endswith('@')
+                if silence:
+                    cmd = cmd[:-1]
+                try:
+                    command.append( [ CMD(cmd[3:].split()), None, silence ] )
+                except Exception as e:
+                    command.append( [ None, u"%s - FAIL(%s)" % (cmd,str(e)), False ] )
+
+        # Execute commands
+        util.TODO('Execute commands')
+
+        # Observers
+        util.TODO('Observers')
+
+
+    finally:
+        if filter(lambda c: c[2] or c[1], commands ):
+            for c in commands:
+                logMessage.append( "%s%s" % (' '.join(c[0].cmdl), ' - %s'%c[1] if c[1] is not None else '') )
+        if logMessage:
+            vk_api1.messages.send( user_id=int(me1), message='vk: '+'\n'.join(logMessage) )
+
+
+        util.TODO("send result of commands notification")
+        if toDelMsgIds:
+            vk_api1.messages.delete( message_ids = ','.join(map(str,toDelMsgIds)) )
+
+
+
+
+
+exit()
+
+"""*************************************************************************************************************"""
+"""*************************************************************************************************************"""
+"""*************************************************************************************************************"""
 
 executed = {}       # list of tags for executed commands (prevent to execute already done keep ) (??? maybe just list of users for which messages was stored)??
 

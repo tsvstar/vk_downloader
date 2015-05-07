@@ -25,6 +25,13 @@ INTERNAL_SERVER_ERROR = 10  # Invalid access token
 CAPTCHA_IS_NEEDED = 14
 TOO_MANY_REQUESTS = 6
 
+""" Improvements:
+            dynamic pause between reqests + re-request if TOO_MANY_REQUESTS
+            progress (show_blink)
+            _NON_FATAL flag for method
+            logging
+"""
+
 """ ========== DEBUG =============== """
 
 import os, codecs, time,traceback
@@ -207,6 +214,7 @@ class APISession(object):
             self.print_blink( '?' if self.wasErrorFlag else None )
         if self.logRequest:
             SayToLog( "%s %s(%s)" % ( ( '?' if self.wasErrorFlag else '' ), method_name, str(method_kwargs) ) )
+        nonFatalFlag = method_kwargs.pop( '_NON_FATAL', False )
         ##print method_name
         ##print "%s(%s)" % (method_name, repr(method_kwargs))
         response = self.method_request(method_name, **method_kwargs)
@@ -222,7 +230,11 @@ class APISession(object):
                 SayToLog( "%s %s" %(method_name, data), tracebackLog = False )
             if 'error' in data:
                 error_data = data['error']
+                if not self.logAnswer:
+                    SayToLog( "%s %s" %(method_name, data), tracebackLog = False )
                 if error_data['error_code'] == CAPTCHA_IS_NEEDED:
+                    if nonFatalFlag:
+                        return None
                     return self.captcha_is_needed(error_data, method_name, **method_kwargs)
 
                 error_codes.append(error_data['error_code'])
@@ -253,6 +265,8 @@ class APISession(object):
             time.sleep( self.pause_after_error )
             return self(method_name, **method_kwargs)
         else:
+            if nonFatalFlag:
+                return None
             raise VkAPIMethodError(errors[0])
 
     def method_request(self, method_name, timeout=None, **method_kwargs):

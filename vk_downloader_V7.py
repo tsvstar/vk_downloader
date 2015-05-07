@@ -106,12 +106,17 @@ def VKEnterLogin( fldName = 'USER_LOGIN' ):
 """
 
 def InitializeDir( USER_LOGIN, WHAT ):
-    if WHAT in ['photo','mp3','video']:
-        BASEDIR = "./DLOAD-%s" % USER_LOGIN
+    DIR_PREFIX = config.CONFIG.get('DIR_PREFIX','').strip()
+    if DIR_PREFIX:
+        pass
+    elif WHAT in ['photo','mp3','video']:
+        DIR_PREFIX = "DLOAD"
     elif WHAT in ['wall']:
-        BASEDIR = "./WALL-%s" % USER_LOGIN
+        DIR_PREFIX = "WALL"
     else:
-        BASEDIR = "./MSG-%s" % USER_LOGIN
+        DIR_PREFIX = "MSG"
+    BASEDIR = "./%s-%s" % (DIR_PREFIX,USER_LOGIN)
+
     print BASEDIR
     if not os.path.exists(BASEDIR):
         os.makedirs(BASEDIR)
@@ -219,6 +224,12 @@ lastdel_id = {}         # [profileid] = id of last deleted message (no need to g
 last_times = {}		# [profileid] = timestamp of last saved message
 
 re_xmlref = re.compile("&#[0-9]+;")
+
+# return '>' for outgoing / '<' for incoming / '?' for error
+def get_msgdirection( msg, me ):
+    if not msg or len(msg)<2:
+        return '?'
+    return '>' if msg[1]==me else '<'
 
 def get_duration( val ):
     val = int(val)
@@ -944,6 +955,8 @@ def PreprocessLoadQueue():
             if friends is None:
                ##say( "Parse friends" )
                friends = vk_api.friends.get( fields="uid,first_name,last_name,domain" )[u'items']
+               for f in friends:
+                    vk_utils._add_profile( f[u'id'], f )
                get_profile( me )
                friends = friends + [ { u'id':me, u'first_name': str_decode(profiles[me][0]), u'last_name': str_decode(profiles[me][1]) } ]
 
@@ -999,7 +1012,7 @@ def PreprocessLoadQueue():
     for load in load_queue:
        if load[0]=='group' or load[1]<0: preload.append(-abs(load[1]))
        elif load[0]=='user':  preload.append(load[1])
-    vk_utils.batch_preload( preload )
+    vk_utils.lazy_profile_batch += preload
 
     # FINALIZE PREPROCESSING
     for idx in range(0,len(load_queue)):
@@ -2303,6 +2316,9 @@ def executeMESSAGE():
             last_times[MAIN_PROFILE] = last_times.get(MAIN_PROFILE,0)
             say( "stop=%s, del=%s " % (stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]) )
 
+            lastdel_time, stopmsg_time = 0,0
+            was_stop, was_last = stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]
+
             if lastdel_id[MAIN_PROFILE]<1:
 
                 if IF_DELETE>0:
@@ -2314,7 +2330,6 @@ def executeMESSAGE():
                 IF_DELETE = -1
 
 
-            lastdel_time, stopmsg_time = 0,0
             id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
             while id > 0:
                 id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
@@ -2361,7 +2376,7 @@ def executeMESSAGE():
 
                 if CONFIG['WRITE_MSGID']:
                     os.write( tmpfp, "%s\n" % k )
-                pref_who = '>' if v[1]==me else '<'
+                pref_who = get_msgdirection( v, me )
                 to_log_body = to_remember.append( time.strftime("%d.%m %H:%M "+pref_who,t) +"\t"+str_decode(v[2]) )
                 #to_log_body = to_remember.append( time.strftime("%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
                 body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
@@ -2432,6 +2447,9 @@ def executeMESSAGE():
                 purged_cnt = len(list_to_del)
                 removeMessage( list_to_del )
 
+            stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
+            lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
+
         finally:
             #7. Log
             if IF_DELETE>0:   mode="del"
@@ -2439,9 +2457,14 @@ def executeMESSAGE():
             else:             mode="postp"
             if isinstance(stopmsg_time,str): stopmsg_time = stopmsg_time.replace('.','')
             if isinstance(lastdel_time,str): lastdel_time = lastdel_time.replace('.','')
-            logmsg= u"mode=%s. *%d(t=%s,id=%s), -%d(t=%s,id=%s), post%d" % ( mode,
-                                                                                len(stored), stopmsg_time, stop_id[MAIN_PROFILE],
-                                                                                purged_cnt, lastdel_time, lastdel_id[MAIN_PROFILE],
+
+            _stopid, _lastdelid = stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]
+
+            ##print sorted(messages.keys()), repr(_stopid)  #@tsv
+
+            logmsg= u"mode=%s. *%d(t=%s/%s%s,id=%s), -%d(t=%s/%s%s,id=%s), post%d" % ( mode,
+                                                                                len(stored), stopmsg_time, get_msgdirection( messages.get(_stopid,None), me ),    was_stop, _stopid,
+                                                                                purged_cnt,  lastdel_time, get_msgdirection( messages.get(_lastdelid,None), me ), was_last, _lastdelid,
                                                                                 len(list_to_del)-purged_cnt )
             if not CONFIG.get('MACHINE',False):
                 say( u"Сохранено %d новых сообщений, удалено %d сообщений", ( len(stored), purged_cnt ) )
@@ -2480,9 +2503,6 @@ def executeMESSAGE():
         # 8. Remember new borders
 
         DBG.trace( "Remember last message" )
-        was_stop, was_last = stop_id[MAIN_PROFILE], lastdel_id[MAIN_PROFILE]
-        stop_id[MAIN_PROFILE] = max( [ stop_id[MAIN_PROFILE] ] + messages.keys() )
-        lastdel_id[MAIN_PROFILE] = max( [ lastdel_id[MAIN_PROFILE] ] + list_to_del )
 
         DBG.trace("stopid: %s->%s; lastdelid: %s->%s", [was_stop, stop_id[MAIN_PROFILE], was_last, lastdel_id[MAIN_PROFILE]])
 

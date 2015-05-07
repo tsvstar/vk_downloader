@@ -52,7 +52,9 @@ def VKLoginByToken( FILE_AUTH, FILE_AUTH_BAK ):
             vk_api = vk.API( access_token=first, timeout=5 )
             print vk_api
 
-        me = vk_api.users.get()[0][u'id']
+        answer = vk_api.users.get()[0]
+        me = answer[u'id']
+        _add_profile( me, answer )
         util.say( "Залогинены в offline-режиме как %s", config.CONFIG['USER_LOGIN'] )
     except Exception as e:
         util.TODO( e )
@@ -105,7 +107,10 @@ def VKLoginByPassword( USER_LOGIN, fldPwd = None, fldPwdEncoded='USER_PASSWORD_E
          util.say( "ERROR: %s\n", e )
          USER_PASSWORD =''
 
-    me = vk_api.users.get()[0][u'id']
+    answer = vk_api.users.get()[0]
+    me = answer[u'id']
+    _add_profile( me, answer )
+
     return vk_api, me, USER_PASSWORD
 
 """========================================="""
