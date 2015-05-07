@@ -4,14 +4,25 @@ It could ar could not contain "callback" functions. If function is absent, defau
 Allow to make any kind of specific processing
 
 They are called as in following pseudoCode:
+    FIRST PASS
+    for module in list:
+        if module.Prepare( module, True ):
+            module.doAction( module, True )
+            postponed.append(module)
+    for module in postponed:
+        module.PostProcess( module, True )
+
+
+    SECOND PASS
+
     init_module_variables
-    if module.Prepare( module, module.command ):
-        msg = module.DoAction( module, module.command )
+    if module.Prepare( module, False ):
+        msg = module.DoAction( module, False )
         if msg is not None:
-            moreNotifyFlag = module.Notify( module, module.command, msg )
+            moreNotifyFlag = module.Notify( module, msg )
             if moreNotifyFlag:
-                default.Notify( module, module.command, msg )
-        module.PostProcess( module, module.command )
+                default.Notify( module, msg )
+        module.PostProcess( module, False )
     if module.errorMessage is not None:
         raise Error(module.errorMessage)
 
@@ -21,13 +32,15 @@ To make more convenient and short following modules are already enforcedly impor
     import vk_utils, tsv_utils as util, config
     from vk_watcher import XXX
 Also following global variables are accessible:
-    vk_api, me, vk_api2, me2
+    vk_api, me
+    vk_api1, me1, vk_api2, me2
 
 To more communitcation between module and watcher following variables exists in the module:
     errorMessage - set it to different than None value if any error happens during processing
     tmpFileName  - pre-initialized name of file for "module-local persistent storage"
     command      - pre-initialized by list of command [ command, who, state, extra]
     options      - replacement for default DOWNLOAD_OPT from config
+    isDryRun     - is False if this first pass and watcher collect sequence of all required queries
 
 Files should follow patterns "STATE_COMMAND[VKAPI]_WHO[_EXTRA]".
     STATE = on|off
@@ -49,20 +62,20 @@ Examples:
 
 import vk_utils, tsv_utils as util, config
 
-def Prepare( module, command ):
+def Prepare( module, isDryRun ):
     # a) do any prepare values (like join)
     # b) change schedule - execute not each time
     return True     # True - proceed, False - skip
 
-def DoAction( module, command ):
+def DoAction( module, isDryRun ):
     # main action
     return None     # None if no Message, 'msg' - to make message
 
 
-def PostProcess( module, command ):
+def PostProcess( module, isDryRun ):
     # do any action which should be done after action (like leave)
     pass
 
-def Notify( module, command, message ):
+def Notify( module, message ):
     return False        # True - if ask to make common notification too, False - use only this command
 

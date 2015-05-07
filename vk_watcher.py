@@ -15,6 +15,7 @@ def LoadConfig():
                      'USER2NOTIFY':   '',
                      'DEFAULT_USER':  '1',          # default argument "WHO" for bot commands if not given
 
+                     'ALIASES':     '',             # JSON-like value to make shorter and hidden names ( {1:"Д", -15:"-FM" } )
                      'DOWNLOAD_OPT': '--DOWNLOAD_MP3=True --DAYBEFORE=7', # extra command line options to run vk_downlaoder
 
                      'PYTHON_EXE':      sys.executable,
@@ -94,31 +95,117 @@ def ScanCommands( handler ):
         if handler( fname, res ):
             break
 
-def CommandSetStatus( fname, cmd ):
-    cmd = [ cmd[1], cmd[0] ] + cmd[2:]                              # change the order to reversed ( STATE _ COMMAND _ WHO _EXTRA )
-    opposite_cmd = ['off' if (cmd[0]=='on') else 'on'] + cmd[1:]
-    fname_old, fpath, fpath_opposite = fname, getPath('_'.join(cmd)), getPath('_'.join(opposite_cmd))
-    fpath_old = getPath(fname_old)
+""" Command object """
+class CMD(object):
 
-    # a) if cmd already in required state - just skip
-    if os.path.exists( fpath ) :
-        pass
-    # b) if exists opposite state command - rename it
-    elif os.path.exists( fpath_opposite ):
-        os.rename( fpath_opposite, fpath )
+    cmdl = []       # [list of command] normalized to [CMD, STATE, WHO, EXTRA]
+    cmd = ""        # name of command without api suffix (autodel2 -> autodel )
+    main_cmd =""    # real name of command (resolved alias: autodel -> autoclean )
+    vk_api = None   # correspondend to suffix vk_api
+    isWatcher = False # False if this is instant command, True if this is watcher object
+    tag = ""        # tag = "CommandSuffix:WHO"
 
-    # c) if given and exists fname (for example comes as time_*) - rename it
-    elif fname_old and os.path.exists( fpath_old ):
-        os.rename( fpath_old, fpath )
+    def __init__( self, cmdl ):
+        cmdl = map( str.lower, cmdl )
+        if len(cmdl)>=2 and cmdl[0] in ['on','off']:
+            cmdl = [ cmdl[1], cmdl[0] ] + cmdl[2:]
+        self.cmdl = cmdl
 
-    # d) otherwise - create a new file
-    else:
-        with open( fpath, 'wb' ) as f:
+        self.cmd, self.vk_api = self.getCommandName( cmdl[0] )
+
+        if self.cmd not in COMMAND_PROCESSORS:
+            raise SkipError("unknown command '%s'", cmdl[0])
+
+        self.main_cmd = COMMAND_PROCESSORS[ self.cmd ] if isinstance( COMMAND_PROCESSORS[ self.cmd ], basestring ) else self.cmd
+        self.isWatcher = maincmd in WATCH_PROCESSORS
+
+        if self.isWatcher and len(cmdl)<2:
+            raise SkipError("no state given for command")
+
+        min_size = 3 if isWatcher else 2
+        if len(cmdl)<min_size:
+            self.cmdl.append( config.CONFIG['DEFAULT_USER'] )
+
+        self.tag = "%s%d:%s" % ( self.main_cmd, 1 if self.vk_api==vk_api1 else 2, self.cmdl[min_size-1] )
+
+    """ Normalize "cmdl" to "NORMAL" format CMD_STATE_WHO_EXTRA
+        OBSOLETE: should be applied to self
+    """
+    @staticmethod
+    def setNormalFormat( cmdl ):
+        if len(cmdl)<2 or cmdl[1].lower() not in ['on','off']:
+            return
+        cmdl = [ cmdl[1], cmdl[0] ] + cmdl[2:]
+        return cmdl
+
+    """ Normalize "cmdl" to "FILE" format STATE_CMD_WHO_EXTRA
+        OBSOLETE: should be applied to self
+    """
+    @staticmethod
+    def setFileFormat( cmdl ):
+        if len(cmdl)<2 or cmdl[0].lower() not in ['on','off']:
+            return
+        cmdl = [ cmdl[1], cmdl[0] ] + cmdl[2:]
+        return cmdl
+
+    """ Parse command name and return ( name, vk_api ) """
+    @staticmethod
+    def getCommandName( cmd ):
+        if len(cmd)==0 or cmd[-1] not in ['1','2']:
+            return cmd, vk_api1
+        elif cmd[-1]=='2':
+            return cmd[:-1], vk_api2
+        return cmd[:-1], vk_api1
+
+    """ Set status of command in filesystem to cmdl[0]
+        NOTES: 1) fname  - if not None then this is current file name (could differ from regular if postponed)
+               2) assumed that give command in "FILE" format
+    """
+    @staticmethod
+    def CommandSetStatus( fname, cmdl ):
+        opposite_cmd = ['off' if (cmdl[0]=='on') else 'on'] + cmdl[1:]
+        fname_old, fpath, fpath_opposite = fname, getPath('_'.join(cmdl)), getPath('_'.join(opposite_cmd))
+        fpath_old = getPath(fname_old)
+
+        # a) if cmd already in required state - just skip
+        if os.path.exists( fpath ) :
             pass
+        # b) if exists opposite state command - rename it
+        elif os.path.exists( fpath_opposite ):
+            os.rename( fpath_opposite, fpath )
 
-    # clean up
-    if fname_old and os.path.exists( fpath_old ):
-        os.unlink( fpath_old )
+        # c) if given and exists fname (for example comes as time_*) - rename it
+        elif fname_old and os.path.exists( fpath_old ):
+            os.rename( fpath_old, fpath )
+
+        # d) otherwise - create a new file
+        else:
+            with open( fpath, 'wb' ) as f:
+                pass
+
+        # clean up
+        if fname_old and os.path.exists( fpath_old ):
+            os.unlink( fpath_old )
+
+    """ OBSOLETE - use __init__
+    Return (RealNameOfCmd, isWatcher, vk_api)
+        NOTE
+        TODO!!!
+    """
+    def getCommand( cmdl ):
+        cmd, api =  CMD.getCommandName( cmdl[0] )
+        if cmd not in COMMAND_PROCESSORS:
+            raise SkipError()
+            util.say( "ERROR: unknown command from msg - %s", [cmdline] )
+            return None
+
+        main_cmd = COMMAND_PROCESSORS[ cmd ] if isinstance( COMMAND_PROCESSORS[ cmd ], basestring ) else cmd
+        isWatcher = maincmd in WATCH_PROCESSORS
+        min_size = 3 if isWatcher else 2
+        if len(cmdl)<min_size:
+            cmdl.append( config.CONFIG['DEFAULT_USER'] )
+        return main_cmd, isWatcher, vk_api
+
 
 # check for posponed actions
 def HandlerPostponed( fname, cmd ):
@@ -128,7 +215,7 @@ def HandlerPostponed( fname, cmd ):
         if (t>now):
             return
         cmd = cmd[2:]                       # cutoff time_TIMESTAMP
-        cmd = [ cmd[1], cmd[0] ] + cmd[2:]  # change the order to regular ( CMD _ STATE _ WHO _EXTRA )
+        CMD.setNormalFormat(cmd)
         maincmd, isWatcher = getCommand( cmd[0] )
         if isWatcher:
             CommandSetStatus( fname, cmd )
@@ -179,22 +266,13 @@ COMMAND_PROCESSORS = { 'keep':  'store',
                        'watch': cmdWatchGroup,
                      }
 
-
-def getCommand( res ):
-    cmd = res[0]
-    if cmd not in COMMAND_PROCESSORS:
-        raise SkipError()
-        util.say( "ERROR: unknown command from msg - %s", [cmdline] )
-        return None
-
-    main_cmd = COMMAND_PROCESSORS[ cmd ] if isinstance( COMMAND_PROCESSORS[ cmd ], basestring ) else cmd
-    isWatcher = COMMAND_PROCESSORS[maincmd]( [cmd], checkWatcher=True )
-    min_size = 3 if isWatcher else 2
-    if len(cmd_ar)<min_size:
-        cmd_ar.append( config.CONFIG['DEFAULT_USER'] )
-    return main_cmd, isWatcher
+WATCH_PROCESSORS = {    'autoclean': AutoCleanWatcher,
+                        'userdef':  DefaultWatcher,
+                        'watch':    GroupWatcher,
+                   }
 
 
+executed = {}       # list of tags for executed commands (prevent to execute already done keep ) (??? maybe just list of users for which messages was stored)??
 
 commands = []
 res =  vk_api.messages.getHistory( offset=0, count = 30, user_id = me, rev = 1 )
@@ -463,45 +541,3 @@ if not processed:
 sys.exit()
 
 
-"""
-
-...
-if (parseInt(photo_items[index].photo_2560.length) > 0)
-{
-    photo_list = photo_list + [photo_items[index].photo_2560];
-}
-...
-else if (parseInt(photo_items[index].photo_75.length) > 0)
-{
-    photo_list = photo_list + [photo_items[index].photo_75];
-}
-...
-
-Ну и напоследок полный код функции:
-
-
-var owner_id = 8296250;
-var album_id = 211849784;
-
-var output = [];
-var user_info = API.users.get({user_ids:owner_id});
-var owner_name = user_info@.first_name[0] + " " + user_info@.last_name[0];
-output = output +[ ["owner_name",0, owner_name] ];
-
-var album = API.photos.getAlbums({owner_id: owner_id, album_ids: album_id});
-output = output +["album",0,"album_body"];
-
-var photo_items = API.photos.get({album_id: album_id, owner_id: owner_id}).items;
-output = output +["photo_items",0,photo_items];
-
-var index = 0;
-while (index < 20 )
-{
-    var id =  owner_id + "_" + photo_items[index].id;
-    var value = API.photos.getById({photos: id});
-    output = output + ["ID", id, value];
-    index = index + 1;
-}
-
-return {output: output};
-"""

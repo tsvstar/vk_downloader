@@ -1,5 +1,6 @@
 # coding=utf8
 
+import json
 import os.path
 import tsv_utils as util
 
@@ -50,8 +51,9 @@ dflt_config = {
     "KEEP_LAST_SECONDS": 0,         # Period (in seconds) from now to past to not immediate but postoponed remove
                                         # (in case of automatic store&clean message could be removed right after appearance,
                                         #so user even do not noticed about it)
+    "NOT_KEEP_IF_MINE": False,      # Specific behavior: do not keep message(KEEP_LAST_SECONDS) if last message is outgoing (and so I know about it) !TODO!
     "DEL_ENFORCED":     False,      # Delete messages which are not readed yet and with attachments
-    "WALL_BACKUP":      False,      # If True then in case if number of comments was decreased make backup copy of the post
+    "WALL_BACKUP":      False,      # If True then in case if number of comments was decreased make backup copy of the post                          !TODO!
 }
 
 CONFIG={}
@@ -89,21 +91,14 @@ def load_config_lines( lines ):
         ( key, val ) = ( l[0].strip().upper(), l[1].split('#')[0].strip() )
         if len(key) and len(val):
             if val.lower() in VALUES:
-                CONFIG[key] = VALUES[val.lower()]
-                ##print "VAL: %s %s" % (key, repr(CONFIG[key]))
-            elif val[0]=='"' and val[-1]=='"':
-                CONFIG[key] = (val[1:])[:-1]
-                ##print "STR\": %s %s" % (key, repr(CONFIG[key]))
+                CONFIG[key] = VALUES[val.lower()]       # a) specific values
             elif val[0]=="'" and val[-1]=="'":
-                CONFIG[key] = (val[1:])[:-1]
-                ##print "STR': %s %s" % (key, repr(CONFIG[key]))
+                CONFIG[key] = (val[1:])[:-1]            # b) 'string' (json do not understand such)
             else:
                 try:
-                    CONFIG[key] =  int(val)
-                    ##print "INT: %s %s" % (key, repr(CONFIG[key]))
+                    CONFIG[key] = json.loads(val)       # c) "string", int, [arrays], {dict}
                 except:
-                    CONFIG[key] =  val
-                    ##print "DFLT: %s %s" % (key, repr(CONFIG[key]))
+                    CONFIG[key] =  val                  # d) by default use value itself
             loaded.append(key)
     return loaded
 

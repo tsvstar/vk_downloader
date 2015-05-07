@@ -135,9 +135,14 @@ def unicformat( s, arg = None ):
         for a in arg: print type(a)
         raise
 
-
-def say( s = '', arg = None ):
+def _say_console( s = '', arg = None ):
     print unicformat( s, arg ).encode('cp866','xmlcharrefreplace')
+
+say_buffer = ''
+def _say_string ( s = '', arg = None ):
+    say_buffer += unicformat( s, arg ).encode('cp866','xmlcharrefreplace') + "\n"
+
+say = _say_console
 
 def say_cp866( s ):
     print str_encode( s, 'cp866' )
