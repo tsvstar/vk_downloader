@@ -35,12 +35,18 @@ Also following global variables are accessible:
     vk_api, me
     vk_api1, me1, vk_api2, me2
 
+    'now', 'me1', 'me2', 'flags', 'USER_LOGIN', 'COMMAND_USER',
+     'DIR_MAIN', 'DIR_LOG','DIR_TMP'
+
 To more communitcation between module and watcher following variables exists in the module:
     errorMessage - set it to different than None value if any error happens during processing
     tmpFileName  - pre-initialized name of file for "module-local persistent storage"
-    command      - pre-initialized by list of command [ command, who, state, extra]
+    cmd      - CMD() object
+                    ##pre-initialized by list of command [ command, who, state, extra]
     options      - replacement for default DOWNLOAD_OPT from config
-    isDryRun     - is False if this first pass and watcher collect sequence of all required queries
+    ##isDryRun     - is False if this first pass and watcher collect sequence of all required queries
+
+
 
 Files should follow patterns "STATE_COMMAND[VKAPI]_WHO[_EXTRA]".
     STATE = on|off

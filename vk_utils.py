@@ -367,9 +367,13 @@ class BatchExecutor():
 ===============================================
 """
 def CachedVKAPI( object ):
-    def __init__( self, vk_api ):
+
+    def __init__( self, vk_api, batch_executor = None ):
         self.vk_api = vk_api
-        self._prepare_ = BatchExecutor( vk_api )
+        if batch_executor:
+            self._prepare_ = batch_executor
+        else:
+            self._prepare_ = BatchExecutor( vk_api )
         self._resMap = {}
         self._rememberUncached = False              # If True - then result of uncached requests will be cached implicitly
                                                     # (this could cause unexpected missing call - because next calls got from cache)

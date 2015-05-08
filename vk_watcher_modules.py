@@ -7,18 +7,25 @@ import tsv_utils as util
 """
 class DefaultWatcher( object ):
     @staticmethod
-    def Prepare( module, isDryRun ):
+    def CheckWatcherStatus( module, isDryRun = False ):
+        # intialize option
+
+        # return True if watcher should be executed (for most modules that means status=='on')
+        return (module.cmd.get('status') == 'on' )
+
+    @staticmethod
+    def Prepare( module, isDryRun = False ):
         # a) do any prepare values (like join)
         # b) change schedule - execute not each time
         return True     # True - proceed, False - skip
 
     @staticmethod
-    def DoAction( module, isDryRun ):
+    def DoAction( module, isDryRun = False ):
         # main action
         return None     # None if no Message, 'msg' - to make message
 
     @staticmethod
-    def PostProcess( module, isDryRun ):
+    def PostProcess( module, isDryRun = False ):
         # do any action which should be done after action (like leave)
         pass
 
@@ -32,9 +39,16 @@ class DefaultWatcher( object ):
     Default sequence for 'autoclean' command
 """
 class AutoCleanWatcher( DefaultWatcher ):
+    @staticmethod
+    def CheckWatcherStatus( module, isDryRun ):
+        # intialize option
+        if not hasattr(module,'options'):
+            module.options = module.config.CONFIG.get('AUTOCLEAN_OPT',[])
+        # autoclean modules are always executed
+        return True
 
     @staticmethod
-    def DoAction( module, isDryRun ):
+    def DoAction( module, isDryRun = False ):
         util.TODO('')
         return None     # None if no Message, 'msg' - to make message
 
@@ -49,7 +63,7 @@ class AutoCleanWatcher( DefaultWatcher ):
 """
 class GroupWatcher( DefaultWatcher ):
     @staticmethod
-    def DoAction( module, isDryRun ):
+    def DoAction( module, isDryRun = False ):
         util.TODO('')
         return None     # None if no Message, 'msg' - to make message
 
