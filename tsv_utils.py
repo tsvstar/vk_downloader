@@ -207,6 +207,7 @@ class DBG(object):
     logfile_name='./LOG/vk_downloader'
     createdFlag = False         # If initialized with True - donot create logdir
     level = IMPORTANT           # -1=turn off, 0-important, 1-info, 2-trace
+    level_exception = IMPORTANT
     fname_suffixes = ['.log', '_info.log', '_trace.log' ]
 
     """ methods """
@@ -219,24 +220,37 @@ class DBG(object):
     @staticmethod
     def _log( lev, *kw, **kww ):
         if DBG.level<lev:
-            return
+            return None
+        message = unicformat(*kw,**kww)
         try:
             if not DBG.createdFlag:
                 dname = os.path.split(os.path.abspath(DBG.logfile_name))[0]
                 if not os.path.exists(dname):
                     os.makedirs( dname )
                 DBG.createdFlag = True
-            txt = u"%s %s\n" % ( time.strftime("%d.%m %H:%M:%S"), unicformat(*kw,**kww) )
+            txt = u"%s %s\n" % ( time.strftime("%d.%m %H:%M:%S"), message  )
             for lev in range(lev,3):
                 if lev<=DBG.level:
                     DBG._write( DBG.logfile_name + DBG.fname_suffixes[lev], txt)
         except:
             pass
+        return message
 
     @staticmethod
     def say( lev, *kw, **kww ):
         say(*kw,**kww)
         DBG._log( lev, *kw, **kww )
+
+    @staticmethod
+    def exception( *kw, **kww ):
+        prefix = ''
+        if kw:
+            prefix = unicformat(*kw,**kww)
+        t, value, tb = sys.exc_info()
+        frame= tb[0]
+        txt = unicformat( u"%s %s:%s at %s:%s {%s}", ( prefix, type(t), value, frame[1],frame[2],fname[3] ) )
+        DBG._log( DBG.level_exception, txt )
+        return message
 
     @staticmethod
     def TODO( *kw, **kww ):
@@ -261,6 +275,19 @@ class DBG(object):
     def trace( *kw, **kww ):
         DBG._log( 2, *kw, **kww )
 
+_debugGuard = False
+def debugDump( obj, short = False ):
+    global _debugGuard
+    if _debugGuard:
+         return
+    _debugGuard = True
+    rv = "Object %s (%d)" % ( obj.__class__, id(obj) )
+    for attr in dir(obj):
+        if short and attr.startswith('__') and attr.endswith('__'):
+                continue
+        rv += "\nobj.%s = %s" % (attr, getattr(obj,attr))
+    _debugGuard = False
+    return rv
 
 
 ################################################################

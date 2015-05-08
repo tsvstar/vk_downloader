@@ -2,12 +2,15 @@
 import os, sys, time, base64,re,codecs, subprocess,random,re
 import vk
 #import collections
-import imp
+import traceback, imp
 
 import vk_utils
 import tsv_utils as util
+from tsv_utils import DBG
 
 """========================================="""
+
+BASE_DIR='"C:\\MY\\VK_DOWLOAD\\'
 
 import config
 def LoadConfig():
@@ -41,31 +44,28 @@ def LoadConfig():
     if cfg_loaded:
         print "Loaded values from %s: %s" % ( config.CFGFILE, str(cfg_loaded) )
 
-LOCKFILE = os.path.join(DIR_TMP,'lockfile.group_watch')
 def AddLockFile( timeout=100 ):
     if os.path.isfile(LOCKFILE):
         if (time.time() - os.path.getmtime(LOCKFILE))>timeout:
             os.unlink(LOCKFILE)
         else:
-            print "LOCK FILE"
+            DBG.say( DBG.IMPORTANT, "LOCK FILE" )
             exit()
     with open(LOCKFILE,'wb') as f:
         f.write('1')
 
-def getHash( last, call, **kww ):
-    try:
-      res = call(**kww)
-    except Exception as e:
-        print e
-        return last
-    ##print res
-    if not res[u'count'] or not res[u'items']:
-           return str(res[u'count'])
-    return "%s:%s" % ( res[u'count'], res[u'items'][0][u'id'] )
-
 
 def getPath (fname):
     return os.path.join( DIR_MAIN, fname )
+
+def ReplaceByMap():
+    for a in aliases:
+        value = value.replace(a[0],a[1])
+    return value
+
+def ReplaceAlias( value ):
+    aliases = map( lambda i: [ str(i[0]), repr(i[1])], config.CONFIG.get('ALIASES',{}).iteritems() )
+    return ReplaceByMap( value )
 
 
 """ Command object """
@@ -119,7 +119,7 @@ class CMD(object):
                 if self.cmdl[who_pos] not in config.CONFIG['USERS']:
                     raise SkipError( util.unicformat(u"Unknown user '%s' for command %s",[self.cmdl[who_pos],self.cmdl[0]]) )
                 self.userid = config.CONFIG['USERS'][self.cmdl[who_pos]]
-            self.username = config.CONFIG['ALIAS'].get( self.userid, str(self.userid) )
+            #self.username = config.CONFIG['ALIASES'].get( self.userid, str(self.userid) )
             self.cmdl[who_pos] = str(userid)
 
         self.who_pos = who_pos
@@ -287,6 +287,7 @@ class Watcher(object):
         self.module = None
         if not self.cmd.isWatcher:
             self.Error = u"unknown watcher '%s'" % self.cmd.main_cmd
+            DBG.important(self.Error)
             return
 
         self.default_module = WATCH_PROCESSORS[self.cmd.main_cmd]
@@ -296,28 +297,36 @@ class Watcher(object):
             self.module = imp.load_source("module", getPath(fname) )
         except Exception as e:
             self.Error = u"fail to load '%s':%s" % (fname,str(e))
+            DBG.important(self.Error)
             return
         finally:
             sys.dont_write_bytecode = was
 
         global_export = [ 'now', 'me1', 'me2', 'flags', 'USER_LOGIN', 'COMMAND_USER',
-                      'DIR_MAIN', 'DIR_LOG','DIR_TMP', 'vk_utils', 'util', 'config' ]
-        util.import_vars( self.module, self, ['cmd','me','tmpFileName'], isOverwrite=True )
+                      'DIR_MAIN', 'DIR_LOG','DIR_TMP', 'vk_utils', 'util', 'config',
+                      'DBG', 'ReplaceAlias', 'ExecuteDownloadMSG', 'SendMsg' ]
+        util.import_vars( self.module, self, ['cmd','me','tmpFileName','default_module'], isOverwrite=True )
         util.import_vars( self.module, self.default_module, '*', isOverwrite=False )
         util.import_vars( self.module, globals(), global_export, isOverwrite=True )
+        DBG.trace("Loaded '%s':\n%s" % (fname,util.debugDump(self.module,short=True)) )
 
 
     def run( self, method, **kww ):
         defaultHandler = kww.pop('defaultHandler',False)
         handlerModule = self.default_module if ( defaultHandler or not hasattr(self.module,method) ) else self.module
+        DBG.trace("%s.run('%s',%s)" % (self, self.method, kww) )
+        DBG.trace(" --> module=%s, default=%s, choosed=%s" % (self.module, self.default_module, handlerModule))
         if not hasattr(handlerModule,method):
             raise SkipError("no '%s' method" % method)
 
         module = self.module
         ( module.vk_api1, module.vk_api2, module.vk_api ) = (pool.vk_api[0], pool.vk_api[1], pool.vk_api[self.api-1] )
+        module.vk_api = module.vk_api1 if self.api==1 else module.vk_api2
         module.errorMessage = self.Error
+        DBG.trace(" --> execute %s() with vk_api=%s/me=%s" % ( getattr( handlerModule, method ), module.vk_api, module.me))
         rv = getattr( handlerModule, method )( module, *kww )
         self.Error = module.errorMessage
+        DBG.trace(" --> result=%s (err=%s)" % ( rv, self.Error) )
         return rv
 
 
@@ -378,11 +387,65 @@ vk_userdef[1|2] on|off [WHO] EXTRA = control userdefined modules
         if tag in flags:
             current_frame[1] = "already done"
         #RunMainScript( cmd )
-        text = ExecuteCheck( IF_DEL )   # ExecuteMainScriptAsMachine()
+        # ExecuteMainScriptAsMachine()
+        message, stderr =  ExecuteDownloadMSG( cmd_obj.userid, IF_DELETE, config.CONFIG.get('DOWNLOAD_OPT',[]) )
 
+        # if not silent - say
         if not current_frame[2]:
-            vk_api1.messages.send( user_id=COMMAND_USER, message='vk: '+text )
+            SendMsg( vk_api1, message, prefix=(u'vk:%s/'%cmd_obj.userid), _replaceAlias = True )
+
+        # we said so no need to say more
         current_frame[2]= True
+
+"""========================================="""
+def RunMainScript( cmd ):
+        cmd = [ config.CONFIG['PYTHON_EXE'], config.CONFIG['VK_DOWNLOADER'] ] + cmd
+        if len(cmd)<5:
+                return '??', 'Too short cmd: %s'%str(cmd)
+        cmd += ["--WAIT_AFTER=False", "--MACHINE=True"]
+        DBG.info('RunMainScript(%s)',repr(cmd) )
+        #print ' '.join(map(lambda s: '"%s"'%s, cmd) )
+        try:
+            fp = subprocess.Popen( cmd, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell = False )
+            stdout,stderr = fp.communicate()
+        except Exception as e:
+            stdout, stderr = '', u'FAIL TO RUN: %s' %str(e)
+
+        if isinstance(stdout,str): stdout = stdout.decode('cp866')
+        if isinstance(stderr,str): stderr = stderr.decode('cp866')
+
+        print "--\n%s" % stdout
+        DBG.trace(u"STDOUT:%s", stdout)
+        if stderr:
+            DBG.trace(u"STDERR:%s", stdout)
+        return stdout, stderr
+
+def SendMsg( vk_api, message, prefix = None, _replaceAlias = False ):
+    DBG.trace(u"SendMsg( %s, msg='%s', prefix='%s', aliase=%s\n%s", [vk_api,message,prefix,_replaceAlias,traceback.format_stack(5)] )
+    if prefix is None:
+        if not message.startswith(u'vk:'):
+            prefix = u'vk:'
+        else:
+            prefix = ''
+    if _replaceAlias:
+        message = ReplaceAlias( message )
+    message = u"%s%s {rnd%x}" % ( prefix, message, random.randint(0,99999) )
+    vk_api.messages.send( user_id=COMMAND_USER, message=message )
+
+
+def ExecuteDownloadMSG( who, delFlag, options ):
+        # DO PLUGIN AUTODEL_CHECK
+        cmd = [ "message", USER_LOGIN, who ]
+        if delFlag is not None:
+            cmd.append( delFlag )
+        cmd += ["--DOWNLOAD_MP3=True", "--DOWNLOAD_VIDEO=False", "--DAYSBEFORE=7" ] + options
+        stdout,stderr = RunMainScript( cmd )
+        ##res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
+        res = map( lambda s: (s.split('{MACHINE}: mode=',1)+[s])[1], res )              # safe cutoff {MACHINE} and before from each line
+        stdout = (''.join(res)).strip()
+
+        stdout += (u'\nERR: %s'%stderr if stderr else '')
+        return stdout, stderr
 
 
 """========================================="""
@@ -411,13 +474,17 @@ WATCH_PROCESSORS = {    'autoclean': vk_watcher_modules.AutoCleanWatcher,
                    }
 
 
+"""========================================="""
 
 def main():
-    #global commands, logMessage, toDelMsgIds, flags, executedCmd
 
     util.init_console()
+    DBG.logfile_name='./LOG_WATCHER/vk_watch'
+    DBG.level = DBG.TRACE
 
-    AddLockFile( timeout=50 )
+    DBG.important( u">>> RUN vk_watcher at %s" % os.getcwdu() )
+    if 'BASE_DIR' in globals() and BASE_DIR:
+        os.chdir(BASE_DIR)
 
     LoadConfig()
     USER_LOGIN = config.CONFIG['USER_LOGIN'].strip()
@@ -428,6 +495,10 @@ def main():
     DIR_MAIN = os.path.join( os.getcwdu(), '.vk_watcher-%s'%USER_LOGIN )
     DIR_LOG = os.path.join( DIR_MAIN, 'log' )
     DIR_TMP = os.path.join( DIR_MAIN, 'tmp' )
+
+    global LOCKFILE
+    LOCKFILE = os.path.join(DIR_TMP,'lockfile.group_watch')
+    AddLockFile( timeout=50 )
 
     """"
     BASEDIR = os.path.join( os.getcwdu(),u"MSG-%s" % USER_LOGIN )
@@ -455,6 +526,8 @@ def main():
     # IMPORTANT: set all local values to globals
     util.import_vars( globals(), locals(), '*', isOverwrite=True )
 
+    CMD_PREFIX = 'vk_'
+
     try:
         # Execute posponed commands
         ##CMDPool.ScanCommands( CMDPool.HandlerPostponed )
@@ -464,33 +537,43 @@ def main():
         res =  vk_api.messages.getHistory( offset=0, count = 30, user_id = me, rev = 1 )
         for item in res[u'items']:
             body = item.get(u'body','').strip().lower()
-            if not body.startswith('vk_'):
+            if not body.startswith(CMD_PREFIX):
                 continue
 
             delMsgId = item.get(u'id',0)
             lst = map(str.strip, body.split('\n') )
+            DBG.info( u"catch command(id=%s): %s", (delMsgId,lst) )
             for cmd in lst:
-                if not cmd.startswith('vk_'):
+                if not cmd.startswith(CMD_PREFIX):
                     continue
                 toDelMsgIds.add( delMsgId )
                 silence = cmd.endswith('@')
                 if silence:
                     cmd = cmd[:-1]
                 try:
-                    command.append( [ CMD(cmd[3:].split()), None, silence ] )
+                    command.append( [ CMD(cmd[len(CMD_PREFIX):].split()), None, silence ] )
                 except Exception as e:
                     command.append( [ None, str(e), False ] )       # u"%s - FAIL(%s)" % (cmd,str(e))
 
+        dbg = "==COMMANDS:\n"
+        for c in commands:
+            dbg+= "=%s\n"%repr(c)
+            if c[0] is not None:
+                dbg+= util.debugDump(c[0],True)
+        DBG.trace( dbg )
+
         # Execute commands
-        util.TODO('Execute commands')
+        DBG.TODO('Execute commands')
         for frame in commands:
             try:
-                COMMAND_PROCESSORS[frame[0].main_cmd]( frame[0], frame )
+                if frame[0] is not None:
+                    DBG.trace("COMMAND: %s -> %s(%s)", [ frame[0].main_cmd, COMMAND_PROCESSORS.get(frame[0].main_cmd,None), frame ] )
+                    COMMAND_PROCESSORS[frame[0].main_cmd]( frame[0], frame )
             except Exception as e:
                 frame[1] = str(e)
 
         # Observers: a) prepare the list
-        util.TODO('Observers')
+        DBG.TODO('Observers')
         pool = WatcherExecutor()
         pool.vk_api = [ vk_utils.BatchExecutor(vk_api1),
                         vk_utils.BatchExecutor(vk_api2) ]
@@ -508,11 +591,13 @@ def main():
                     c.run( 'DoAction', isDryRun = True )
                     postponed.append(c)
             except Exception as e:
+                DBG.important(str(e))
                 c.Error = str(e)
         for c in postponed:
             try:
                 c.run( 'Postprocess' )
             except Exception as e:
+                DBG.important(str(e))
                 c.Error = str(e)
 
         # c) 2nd pass (actually execute watchers)
@@ -529,6 +614,7 @@ def main():
                 if c.run( 'Prepare', isDryRun = False ):
                     message = c.run( 'DoAction', isDryRun = False )
                     c.run( 'Postprocess', isDryRun = False )
+                #if message and not c.Error:
                 if message and not c.Error:
                     if c.run( 'Notify', message = message ):
                         c.run( 'Notify', message = message, defaultHandler = True )
@@ -536,6 +622,7 @@ def main():
                 if not c.Error:     # no need to include this into status
                     continue
             except Exception as e:
+                DBG.important(str(e))
                 c.Error = str(e)
 
             c.cmd.cmdl[0] = u"[auto]" + c.cmd.cmdl[0]
@@ -546,20 +633,23 @@ def main():
         # execute 'vk_status' command
         try:
             status = {}
+            users = map( lambda i: [ i[1], str(i[0]) ], config.CONFIG.get('USERS',{}).iteritems() )
             def addStatus(fname, cmdl):
+                DBG.trace('addStatus(%s,%s)', [fname,cmdl])
                 if cmdl[0] not in ['on','off'] or len(cmdl)<3:
                     return
-                users = map( lambda i: [ i[1], str(i[0]) ], config.CONFIG.get('USERS',{}).iteritems() )
                 cmdl[2] = users.get( cmdl[2], cmdl[2] )
                 status[fname] = ' '.join(cmdl)
 
             if 'vk_status' in flags:
                 CMDPool.ScanCommands(addStatus)
+                DBG.trace(status)
                 status = map( lambda k: status[k], sorted(status.keys()) )
             if status:
-                vk_api1.messages.send( user_id=COMMAND_USER, message=u'vk: status\n'+'\n'.join(status) )
+                SendMsg( vk_api1, '\n'.join(status), prefix=u'vk: status\n' )
+
         except Exception as e:
-            util.TODO(e)
+            DBG.TODO(str(e))
 
         # send the commands status message if any non-silent or error
         try:
@@ -575,13 +665,14 @@ def main():
                     logMessageCmd.append( u"%s%s" % (cmdl, u' - FAIL(%s)'%c[1] if c[1] is not None else '') )
                 logMessage = logMessageCmd + logMessage
             if logMessage:
-                vk_api1.messages.send( user_id=COMMAND_USER, message=u'vk: '+'\n'.join(logMessage) )
+                SendMsg( vk_api1, '\n'.join(logMessage), prefix=u'vk: ' )
         except Exception as e:
-            util.TODO(e)
+            DBG.TODO(str(e))
 
         # delete messages
         if toDelMsgIds:
             util.TODO('Maybe filter only that messages which were completely executed or failed??')
+            DBG.trace("%s", [toDelMsgIds])
             vk_api1.messages.delete( message_ids = ','.join(map(str,toDelMsgIds)) )
 
 
@@ -732,22 +823,6 @@ def checkGroup( BASEDIR,MAIN_PROFILE, vk_api ):
 
 VK_API_MAIN = vk_api
 # WATCHER
-
-def RunMainScript( cmd ):
-        os.chdir("C:\\MY\\VK_DOWLOAD\\")
-        cmd = [ "C:\\MY\\VK_DOWLOAD\\Python27\\App\\python.exe", "C:\\MY\\VK_DOWLOAD\\Python27\\vk_downloader\\vk_downloader.py" ] + cmd
-        if len(cmd)<5:
-                return '??', 'Too short cmd: %s'%str(cmd)
-        cmd += ["--WAIT_AFTER=False", "--MACHINE=True"]
-        print ' '.join(map(lambda s: '"%s"'%s, cmd) )
-        fp = subprocess.Popen( cmd, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell = False )
-        stdout,stderr = fp.communicate()
-
-        if isinstance(stdout,str): stdout = stdout.decode('cp866')
-        if isinstance(stderr,str): stderr = stderr.decode('cp866')
-
-        print "--\n%s" % stdout
-        return stdout, stderr
 
 def SendMsgAndDelBase( delMsgId, msg):
         SendMsg(msg)
