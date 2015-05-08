@@ -122,12 +122,12 @@ class AutoCleanWatcher( DefaultWatcher ):
                 with open(module.tmpFileName,'rb') as f:
                     message = util.str_decode( f.read(), 'utf-8')
                 if message:
-                    module.SendMsg( module.vk_api, message, ( u'vk:%s/'%module.cmd.userid), _replaceAlias = True  )
+                    module.SendMsg( module.vk_api, message, ( u'vk: %s/'%module.cmd.userid), _replaceAlias = True  )
                 os.unlink(module.tmpFileName)
         else:
             # 2) message given and posponed existed - means we need to send current one
             if os.path.isfile(module.tmpFileName):
-                module.SendMsg( module.vk_api, message, ( u'vk:%s/'%module.cmd.userid), _replaceAlias = True  )
+                module.SendMsg( module.vk_api, message, ( u'vk: %s/'%module.cmd.userid), _replaceAlias = True  )
                 os.unlink(module.tmpFileName)
             else:
             # 3) message given but no posponed existed - postpone current

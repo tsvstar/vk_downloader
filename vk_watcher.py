@@ -392,7 +392,7 @@ vk_userdef[1|2] on|off [WHO] EXTRA = control userdefined modules
 
         # if not silent - say
         if not current_frame[2]:
-            SendMsg( vk_api1, message, prefix=(u'vk:%s/'%cmd_obj.userid), _replaceAlias = True )
+            SendMsg( vk_api1, message, prefix=(u'vk: [cmd]%s/'%cmd_obj.userid), _replaceAlias = True )
 
         # we said so no need to say more
         current_frame[2]= True

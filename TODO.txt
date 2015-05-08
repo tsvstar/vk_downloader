@@ -26,8 +26,10 @@ TOCHECK:
 	vk cache separate_media
 
 TODO:
+	mark as readed incoming messages which are deleted but unreaded
+	for {MACHINE} say ddmmyy only if it is different day of message or on the border (>22:00 or <02:00). and give ddmm
 	correct say in {MACHINE} msg (now it say first msg of sequence not last one) --- NO IT SAY FROM WHICH IT STORE, FROM WHICH IT DEL. MAYBE GIVE RANGE?
-	add direction (</>) to {MACHINE}
+	add direction (</>) to {MACHINE}	- get from getById() if marked is deleted
 	do not remove messages with video on enforced remove
 	looks like 'restore' restore more than expected ( say 10minutes, but it restore whole row)
 
@@ -40,7 +42,7 @@ TODO:
 	Write: HOW_TO_START.txt / HOW_TO_START_ru.txt
 	update configs to current internal ver
 	Write complete manual
-        multithreaded video/mp3 dload(?)
+	multithreaded video/mp3 dload(?)
 
 	more url patterns to detect
 	detect group by nickname

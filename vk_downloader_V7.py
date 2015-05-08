@@ -2330,7 +2330,13 @@ def executeMESSAGE():
                 IF_DELETE = -1
 
 
-            id = get_msg( vk_api.messages.getHistory( offset=0, count = 200, **kw ) )
+            res = vk_api.messages.getHistory( offset=0, count = 200, **kw )
+            if len(res):
+                m = res[u'items'][0]
+                if CONFIG.get('NOT_KEEP_IF_MINE',False) and util.make_int(m.get(u'from_id',1))==me:
+                    config.CONFIG['KEEP_LAST_SECONDS'] = 0
+
+            id = get_msg( res )
             while id > 0:
                 id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
             say()
