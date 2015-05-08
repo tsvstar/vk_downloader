@@ -353,6 +353,8 @@ class CmdHandlers(object):
 vk_statusPIN
 vk_keep|vk_clean [WHO]           =
 vk_join|vk_leave [WHO]           = join/leave group
+vk_readstate [WHO]               = TODO check is last outgoing was readed
+vk_watchread [WHO]               = TODO notify about reading of last outgoing message fact
 vk_autoclean[1|2] on|off [WHO]   = periodic vk_clean(on)/vk_keep(off)
 vk_watch[1|2] on|off [WHO]       = watch wall/ph/video/audio
 vk_userdef[1|2] on|off [WHO] EXTRA = control userdefined modules
@@ -372,6 +374,13 @@ vk_userdef[1|2] on|off [WHO] EXTRA = control userdefined modules
             cmd_obj.CommandSetStatus( None, cmd_obj.cmdl )
         finally:
             cmd_obj.setNormalFormat()
+
+    @staticmethod
+    def cmdReadState( cmdReadState, current_frame ):
+        # scan up to last message(see restore algorithm; but bulks=200 records) for last outgoing message to WHO
+        # and say is it readed
+        raise util.SkipError( 'not implemented yet; maybe include into vk_status for autoclean records' )
+
 
     @staticmethod
     def cmdJoinLeave( cmd_obj, current_frame ):
@@ -421,7 +430,8 @@ def RunMainScript( cmd ):
         return stdout, stderr
 
 def SendMsg( vk_api, message, prefix = None, _replaceAlias = False ):
-    DBG.trace(u"SendMsg( %s, msg='%s', prefix='%s', aliase=%s\n%s", [vk_api,message,prefix,_replaceAlias,traceback.format_stack(5)] )
+    DBG.trace(u"SendMsg( %s, msg='%s', prefix='%s', alias=%s\n%s", [vk_api,message,prefix,_replaceAlias,traceback.format_stack(5)] )
+    DBG.important(u'\nSENDMSG>>>\n%s\n<<<<', [message] )
     if prefix is None:
         if not message.startswith(u'vk:'):
             prefix = u'vk:'
@@ -458,6 +468,7 @@ COMMAND_PROCESSORS = { 'keep':  'store',
                        'join':  CmdHandlers.cmdJoinLeave,
                        'leave': CmdHandlers.cmdJoinLeave,
                        'status'+config.CONFIG.get('PIN',''): CmdHandlers.cmdStatus,
+                       'readstate': CmdHandlers.cmdReadState,
                        'help'+config.CONFIG.get('PIN',''):   CmdHandlers.cmdHelp,
                        #'restore': CmdHandlers.cmdRestore,
 
