@@ -117,7 +117,6 @@ def InitializeDir( USER_LOGIN, WHAT ):
         DIR_PREFIX = "MSG"
     BASEDIR = "./%s-%s" % (DIR_PREFIX,USER_LOGIN)
 
-    print BASEDIR
     if not os.path.exists(BASEDIR):
         os.makedirs(BASEDIR)
     IMGDIRBASE = '%s/images' % BASEDIR
@@ -306,7 +305,7 @@ def parse_attachment( attach, pre, html = False ):
         tmp,fname=os.path.split(fname)
         tmp,dname=os.path.split(tmp)
         ##return "file://./%s/%s" % ( urllib.quote_plus(dname), urllib.quote_plus(fname) )
-        return "./%s/%s" % ( dname, fname )
+        return str_encode( "./%s/%s" % ( dname, fname ) )
 
     def make_attachbody( prefix, title, attach_item, url, dloaded_fname = None ):
         text = prefix + ( ' "%s"' % title )
@@ -484,7 +483,7 @@ def parse_attachment( attach, pre, html = False ):
         # reset photo sequence counter
         num_of_this_foto = -1
 
-    body = ('<BR>\n' if html else '\n').join( add_body )
+    body = ('<BR>\n' if html else '\n').join( map(str_encode,add_body) )
     if not html:
         preview = []
     return body, preview
@@ -589,7 +588,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             if len(body_attach)>0 and len(mbody)>0:
                 mbody += "<BR>\n" if html else '\n'
             preview += mpreview
-            return mbody + body_attach
+            return mbody + str_encode(body_attach)
 
 
         for f in fwd:
@@ -623,7 +622,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
 
         ##print "process %s" %id
         if html:
-            preview = ('\n'.join(preview)).strip().replace('\n\n','\n')
+            preview = ('\n'.join(map(str_encode,preview))).strip().replace('\n\n','\n')
             preview = makehtml( preview[:150], False ).replace('\n','<BR>').replace('\t',' ')
 
         is_only_img_attach = not( len(attach) - len( filter(lambda a: (u'photo' not in a) ,attach) ) )
@@ -636,7 +635,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
     for key, val in resMap.iteritems():
         t, id = key.split(':')
         res = val[0]
-        if t=='comments':
+        if t=='comments' and val[1] is None:
             for c in res[u'items']:
                 if u'from_id' in c:
                     vk_utils.lazy_profile_batch.append( c[u'from_id'] )
@@ -672,7 +671,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             if preview and html:
                 base_preview = messages[int(id)][5]
                 if len(base_preview)<150:
-                    preview = makehtml( '\n'.join(preview).strip()[:150-len(base_preview)], False ).replace('\n','<BR>').replace('\t',' ')
+                    preview = makehtml( '\n'.join(map(str_encode,preview)).strip()[:150-len(base_preview)], False ).replace('\n','<BR>').replace('\t',' ')
                     messages[int(id)][5] = '%s<BR>%s' % ( base_preview,preview)
         else:
             DBG.say( DBG.ERROR, "ERROR: unknown key %s", [key] )
@@ -701,8 +700,8 @@ def init_dirs( objtype, objid, objname ):
     global MAIN_PROFILE, IMGDIR, IMGDIRBASE, MP3DIR, MP3DIRBASE, DOCDIR
 
     MAIN_PROFILE = str_encode( '%s_%s' % ( objtype, objid ) )
-    IMGDIR = "%s-%s-%s" % ( IMGDIRBASE, MAIN_PROFILE, fname_prepare(objname) )
-    MP3DIR = "%s-%s-%s" % ( MP3DIRBASE, MAIN_PROFILE, fname_prepare(objname) )
+    IMGDIR = unicformat(u"%s-%s-%s", ( IMGDIRBASE, MAIN_PROFILE, fname_prepare(objname) ) )
+    MP3DIR = unicformat(u"%s-%s-%s", ( MP3DIRBASE, MAIN_PROFILE, fname_prepare(objname) ) )
     DOCDIR = None
 
 
@@ -1986,7 +1985,7 @@ def executeWALL():
 
                         indexFile.write('<tr><td>&nbsp;</td>\n'+
                                         '<tr valign=top><td width=5% nowrap><B>' +
-                                        '<A HREF="%s#%s" class=b>%s</A></td><td>%s</td><td>%s</td>\n' % ( pfname, msgid, timestr, make_profilehtml(int(pwho)), pbody )
+                                        '<A HREF="%s#%s" class=b>%s</A></td><td>%s</td><td>%s</td>\n' % ( str_encode(pfname), msgid, timestr, make_profilehtml(int(pwho)), pbody )
                                        )
 
                     indexFile.write('</table>\n</body></html>\n')

@@ -6,8 +6,17 @@ TODO:
 			   - messages/indexes got from latest cache
 
 	* FAIL TO RESOLVE NAME VK_VIDEO
-	   	https://vk.com/video-76655905_170601121
-		https://vk.com/video-82731295_171118372 
+	   	A) https://vk.com/video-76655905_170601121
+			remember field u'access_key' -76655905_170601121_d01058ede2fc9d6836
+			http://vk.com/event76655905?z=video8296250_171047782%2F66c977c640559dbaa3
+			http://vk.com/im?sel=8296250&z=video-75259975_170512741%2F7418c0716613586937
+
+		B) https://vk.com/video-82731295_171118372 
+			response: { count: 1, items: [] }
+			--> scan wall.get (bulk=100) and getComments(???) just to find this... 
+			    maybe better to try open it and extract from html
+
+
 	* FAIL TO DECRYPT YOUTUBE
 		http://youtu.be/nYwe_WHARdc 
 			--> fail to decrypt again
@@ -26,12 +35,12 @@ TOCHECK:
 	vk cache separate_media
 
 TODO:
-	mark as readed incoming messages which are deleted but unreaded (maybe this automatically happens when I send outgoing message?)
 	for {MACHINE} say ddmmyy only if it is different day of message or on the border (>22:00 or <02:00). and give ddmm
 	correct say in {MACHINE} msg (now it say first msg of sequence not last one) --- NO IT SAY FROM WHICH IT STORE, FROM WHICH IT DEL. MAYBE GIVE RANGE?
 	add direction (</>) to {MACHINE}	- get from getById() if marked is deleted
 	do not remove messages with video on enforced remove
 	looks like 'restore' restore more than expected ( say 10minutes, but it restore whole row)
+	--SEPARATE_CHAT=month|day|year save messages
 
 	WHY lastdel_time,stoptime could be int?
 	simplify output (vk:...) and command (vk_*)
@@ -79,4 +88,6 @@ DONE:
 	Add tsv_utils.DBG (logging class)
 	Do not exit if say 'No' on question 'Download Video?' (some other queued tasks could be present)
 
+	mark as readed incoming messages which are deleted but unreaded --- THIS AUTO HAPPENS WHEN SEND OUTGOING
 
+	--DIR-PREFIX, --NOT_KEEP_IF_MINE

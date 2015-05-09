@@ -78,7 +78,7 @@ def InitConfigFromARGV( startsfrom ):
             if len(a)>1 and a[0].startswith('--'):
                 k = a[0][2:].replace('-','_').upper()
                 if k not in CONFIG:
-                    util.say( "ERROR: Неизвестная опция %s", arg )
+                    util.DBG.say( util.DBG.ERROR, "ERROR: Неизвестная опция %s", arg )
                 else:
                     lines.append( [k, a[1]] )
         return load_config_lines( lines )
@@ -92,6 +92,7 @@ def load_config_lines( lines ):
     for l in lines:
         ( key, val ) = ( l[0].strip().upper(), l[1].split('#')[0].strip() )
         if len(key) and len(val):
+            ##util.DBG.trace("cfg['%s']=%s",[key,val])
             if val.lower() in VALUES:
                 CONFIG[key] = VALUES[val.lower()]       # a) specific values
             elif val[0]=="'" and val[-1]=="'":

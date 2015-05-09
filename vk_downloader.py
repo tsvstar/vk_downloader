@@ -35,6 +35,7 @@ def main():
 
         cfg_loaded  = config.load_config( config.CFGFILE )                    # load config
         argv_loaded = config.InitConfigFromARGV( startsfrom = 4 )             # load arguments from ARGV
+        ##util.DBG.trace( util.debugDump(config.CONFIG, False) )
         try:                                                                  # extend console - made after first load config to load CONSOLE_SIZE
             import util_console
             c_w, c_h = (config.CONFIG['CONSOLE_SIZE'].split(':')+['0'])[:2]

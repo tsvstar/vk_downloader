@@ -47,6 +47,7 @@ scriptencoding = 'utf-8'
 def fname_prepare(fname):
    for repl in ['"', ':', '\\', '/', '?', '*', '|' ]:
         fname = fname.replace( repl, '_' )
+   fname = str_decode(fname)
    return fname.strip()
 
 # SAFE MAKE UNICODE STRING
