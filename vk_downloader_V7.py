@@ -48,6 +48,10 @@ def Initialize():
         pass
 
 
+    if not CONFIG['USER_LOGIN'].startswith('+') and CONFIG['USER_LOGIN'].find('@')<0:
+        raise FatalError( unicformat("Неверный логин - %s",[CONFIG['USER_LOGIN']]) )
+
+
     # Basic validations
     try:
         if CONFIG['APP_ID'] is None:
@@ -296,7 +300,7 @@ def dload_attach( dirname, fname, url, mark = None, needPrefix = True, type = No
      return fullfname
 
 # PARSE ATTACHMENT()
-def parse_attachment( attach, pre, html = False ):
+def parse_attachment( attach, pre, html = False, got_from = '' ):
     global kww,pww,CONFIG,IMGDIR,MP3DIR, DOCDIR, VIDEO_LIST, VIDEO_LIST_SET
     add_body = []
     preview = []
@@ -308,6 +312,7 @@ def parse_attachment( attach, pre, html = False ):
         return str_encode( "./%s/%s" % ( dname, fname ) )
 
     def make_attachbody( prefix, title, attach_item, url, dloaded_fname = None ):
+        url = str_encode(url)
         text = prefix + ( ' "%s"' % title )
         duration = attach_item.get(u'duration',None)
         if duration is not None:
@@ -375,7 +380,9 @@ def parse_attachment( attach, pre, html = False ):
             a = a[u'video']
             title = str_encode( a.get(u'title','') )
             videoid = "%s_%s" % ( a.get(u'owner_id',0), a.get(u'id',0) )
-            url = "http://vk.com/video" + videoid
+            if u'access_key' in a:
+                videoidfull = "%s%s|%s" % ( videoid, "?list="+a[u'access_key'], got_from )
+            url = "http://vk.com/video" + videoidfull
             preview.append( 'video "%s"'%title )
             add_body[-1] += make_attachbody( "video", title, a, url, None )
             #tmp, dname = os.path.split(MP3DIR)
@@ -468,7 +475,7 @@ def parse_attachment( attach, pre, html = False ):
                 pre_new = ''
                 postfix = "</td></table>\n"
 
-            body_attach, preview_attach = parse_attachment( hist.get(u'attachments', []), pre_new, html )
+            body_attach, preview_attach = parse_attachment( hist.get(u'attachments', []), pre_new, html, got_from )
             if len(text)>0 and len(body_attach)>0:
                 add_body[-1] += '<BR>' if html else '\n'
             preview += preview_attach
@@ -489,7 +496,7 @@ def parse_attachment( attach, pre, html = False ):
     return body, preview
 
 #  GET MESSAGES
-def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None ):
+def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheHandler = None, textHandler = None, got_from = '' ):
     global CURMSG_TIME
 
     # set defaults
@@ -512,7 +519,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
         for f in fwd:
             if u'user_id' in f:
                 batch.append( util.make_int(f[u'user_id']) )
-                attachments += f.get( u'attachments', [] )
+            attachments += f.get( u'attachments', [] )
         for a in attachments:
             if u'wall' in a:
                 a = a[u'wall']
@@ -602,11 +609,11 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             body += "*** FWD %s ***\n" % suffix
             body += make_body( cbody, html )
             preview += [ "** FWD %s" % suffix ]
-            body_attach, preview_attach = parse_attachment( f.get( u'attachments', [] ),'> ', html=html )
+            body_attach, preview_attach = parse_attachment( f.get( u'attachments', [] ),'> ', html=html, got_from = "%s_%s"%(got_from,id) )
             body = _addAttach( body, preview, preview_attach )
             body += "\n*************\n"
 
-        body_attach, preview_attach = parse_attachment( attach, '', html=html )
+        body_attach, preview_attach = parse_attachment( attach, '', html=html, got_from = "%s_%s"%(got_from,id) )
         body = _addAttach( body, preview, preview_attach )
 
         ##print "------------"
@@ -661,7 +668,7 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             for c in res[u'items']:
                 ##print c
                 cbody = make_body( c.get(u'text',''), html )
-                body_attach, preview_attach = parse_attachment( c.get(u'attachments',[]), '', html=html )
+                body_attach, preview_attach = parse_attachment( c.get(u'attachments',[]), '', html=html, got_from = "%s_%s"%(got_from,id) )
                 cbody = _addAttach( cbody, preview, [] )
                 ct = int(m.get(u'date'))
                 cwho = get_profile( c.get(u'from_id',1) )
@@ -784,10 +791,32 @@ def PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE ):
 
     # 1) Video - have specific processing (could give URL, filelist, non-VK URLs)
     if WHAT in ['video']:
-        match = re.search( "video(-?[0-9]+)(_([0-9]+))", MAIN_PROFILE )
+        match = re.search( "(video(-?[0-9]+)(_([0-9]+)))([%2Flist\?=]+[0-9Fa-f]+)", MAIN_PROFILE )
         if MAIN_PROFILE.find('vk.com/')>0 and match:
-            MAIN_PROFILE = "https://vk.com/" + match.group(0)
-            owner, videoid = int(match.group(1)), int(match.group(3))
+            accesskey=''
+            if match.group(5).startswith('%2F'):
+                accesskey=match.group(5)[3:]
+            elif match.group(5).startswith('?list='):
+                accesskey=match.group(5)[6:]
+
+            got_from =''
+            if accesskey:
+                if MAIN_PROFILE.find('im?')>=0 and MAIN_PROFILE.find('sel=')>0:
+                    match1 = re.search("sel=([0-9]+)",MAIN_PROFILE)
+                    if match1:
+                        got_from = "|user=%s_0"%match1.group(1)   #chat=
+                else:
+                    match1 = re.search("(-?[0-9]+)\?",MAIN_PROFILE)
+                    if match1:
+                        if MAIN_PROFILE.find("/wall")>=0 or MAIN_PROFILE.find("/id")>=0 or match1.group(1).startswith('-'):
+                            got_from = "|wall%s" % match1.group(1)
+                        else:
+                            #wall, club, event, public
+                            got_from = "|wall-%s" % match1.group(1)
+
+            MAIN_PROFILE = "https://vk.com/%s%s%s" % ( match.group(1), '?list=%s'%accesskey if accesskey else '', got_from )
+            owner  = int(match.group(2))    #, int(match.group(4))
+            videoid = "%s%s%s" % (match.group(2), match.group(3), '_%s'%accesskey if accesskey else '' )
             res = vk_api.video.get(owner_id=owner, videos=videoid)[u'items']
 
             if len(res):
@@ -802,7 +831,7 @@ def PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE ):
 
             load_queue.append( [ 'value', MAIN_PROFILE, MAIN_PROFILE,
                                     #item3 = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
-                                    [ '', MAIN_PROFILE, fname, get_duration(duration), title ] ] )
+                                    [ '', MAIN_PROFILE, fname, title, get_duration(duration) ] ] )
 
             MAIN_PROFILE = "~"
         elif MAIN_PROFILE in ['','*']:
@@ -1213,6 +1242,9 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
 firstTimeVideo = True
 session = None
 vkLoginDone = False
+
+#VIDEO_LIST = [ 0status, 1url, 2fname, 3title, 4duration, 5to_download ]
+
 def downloadVideo( file_videolist, start_idx ):
         global VIDEO_LIST, vkLoginOk, firstTimeVideo, changeFlag
 
@@ -1292,11 +1324,23 @@ def downloadVideo( file_videolist, start_idx ):
             VIDEO_LIST[idx][idx2] = value
             changeFlag = True
 
+        def GetLine( t, cutSuffix=False ):
+            idx2 = map_line_validx.get(t,-1)
+            if idx<0:
+                DBG.TODO('Wrong key %s' % t)
+                raise Exception()
+            rv = VIDEO_LIST[idx][idx2]
+            if cutSuffix:
+                return rv.split('|')[0]
+            return rv
+
+
         # 1. Find all downloaded video
         changeFlag = False
         for idx in xrange(start_idx,len(VIDEO_LIST)):
             #VIDEO_LIST[] = [ 0size(if dloaded), 1url, 2fname, 3title, 4duration, 5urltodownload ]
             line = VIDEO_LIST[idx]
+
             if len(line)<3:
                 continue
 
@@ -1336,10 +1380,10 @@ def downloadVideo( file_videolist, start_idx ):
         loadAllVideo = False
         for idx in TO_LOAD_IDX:
             line = VIDEO_LIST[idx]
-            fname = VIDEO_LIST_DICT.get( line[1], None )
+            fname = VIDEO_LIST_DICT.get( GetLine('url',cutSuffix=True), None )
 
             if fname is not None:
-                say( "\n%s\n  --> Существует как: %s", ( line[2], fname ) )
+                say( "\n%s\n  --> Существует как: %s", ( GetLine('fname'), fname ) )
                 continue
 
             if firstTimeVideo:
@@ -1358,27 +1402,28 @@ def downloadVideo( file_videolist, start_idx ):
             ##if line[5]!='':
             ##    continue
 
-            fullfname = line[2]
-            say( "\nСкачиваем: %s\t(%s)", ( line[1], line[3]) )
+            fullfname = GetLine('fname')
+            say( "\nСкачиваем: %s\t(%s)", ( GetLine('url'), GetLine('title')) )
 
-            if line[1].find('vk.com/')<0 and line[5]=='':
-                ChangeLine( 'to_download', line[1] )
+            if GetLine('url').find('vk.com/')<0 and GetLine('to_download')=='':
+                ChangeLine( 'to_download', GetLine('url') )
 
             # load url and parse to find content url
             to_download = None
             htmlline='???'
-            if util.is_any_find( line[5], ['youtu.be/','youtube.com/','vimeo.com/'] ):
+            if util.is_any_find( GetLine('to_dowload'), ['youtu.be/','youtube.com/','vimeo.com/'] ):
                 # If we know that this comes from
-                to_download = line[5]
-            elif util.is_any_find( line[5], ['rutube.ru/'] ):
+                to_download = GetLine('to_dowload')
+            elif util.is_any_find( GetLine('to_dowload'), ['rutube.ru/'] ):
                 # If remember resource link to known restricted provider - no need to ask VK again
-                htmlline = line[5]
+                htmlline = GetLine('to_dowload')
             else:
                 session = getVKInstance()
                 if session is None:
                     return
 
-                response = session.get( line[1] )
+                response = session.get( GetLine('url', cutSuffix=True ) )
+                ##DBG.trace("GOT VIDEO\n>>>\n%s\n<<<<\n", [response._content])
                 idx_f = response._content.find("\najax.preload('al_video.php',")
                 values=[]
                 if idx_f>0:
@@ -1386,10 +1431,17 @@ def downloadVideo( file_videolist, start_idx ):
                     values =  htmlline.split('"url')
 
                 if len(values)<2:
-                    say( "Не могу загрузить видео %s - возможно уже удалено!!", line[1] )
+                    htmlline, values = extendedVKVideoParse( GetLine('url') )
+                if len(values)<2:
+                    say( "Не могу загрузить видео %s - возможно уже удалено!! (или неверены hardcoded cookies)", GetLine('url') )
                     ChangeLine( 'size', '##' )
                     ChangeLine( 'to_download', str_decode("##"+htmlline) )
                     continue
+                if not GetLine('title').strip():
+                    match_title = re.search("<title>([^<]+)", response._content)
+                    if match_title:
+                        ChangeLine( 'title', str_decode(match_title.group(1)) )
+
 
             if to_download is None:
                 # If parse VK - check maybe it is based on YOUTUBE
@@ -1445,17 +1497,17 @@ def downloadVideo( file_videolist, start_idx ):
                 values = map(lambda s: s.replace('\\/','/').split('\"')[:3], values[1:] )
                 vdict = dict( map(lambda v: [int(v[0].rstrip('\\')), v[2][:-1]], values[:-1]) )
                 if len(vdict)==0:
-                    say( "Не могу загрузить видео %s - возможно удалено", line[1] )
+                    say( "Не могу загрузить видео %s - возможно удалено {2}", GetLine('url') )
                     ChangeLine( 'size', '##' )
                     ChangeLine( 'to_download', str_decode("##"+htmlline) )
                     continue
 
                 ar_r = filter(lambda v: v<=int(CONFIG['VIDEO_MAX_SIZE']), vdict.keys() )
                 if len(ar_r)==0:
-                    say("Нет подходящих размеров видео: %s", line[1] )
+                    say("Нет подходящих размеров видео: %s", GetLine('url') )
                     continue
                 maxres = max(ar_r)
-                yvideo = pytube.models.VKVideo( vdict[maxres], fname_prepare(line[3]), vk_api=vk_api, resolution=maxres, extension='mp4' )
+                yvideo = pytube.models.VKVideo( vdict[maxres], fname_prepare(GetLine('title')), vk_api=vk_api, resolution=maxres, extension='mp4' )
 
             # prepare filename (if not given, use title):
             if not fullfname.strip():
@@ -1467,7 +1519,7 @@ def downloadVideo( file_videolist, start_idx ):
                 say( "Видео уже загружено - %s", fullfname )
                 VIDEO_LIST_DICT.setdefault( url, fullfname )
                 if len(line)>5:
-                    VIDEO_LIST_DICT.setdefault( line[5], fullfname )   # remember
+                    VIDEO_LIST_DICT.setdefault( GetLine('to_dowload'), fullfname )   # remember
                 ChangeLine( 'size', '#LOADED=%s' % fullfname )
                 continue
 
@@ -1499,9 +1551,9 @@ def downloadVideo( file_videolist, start_idx ):
                 say( "\nОшибка записи в файл '%s'", fullfname)
                 raise
 
-            VIDEO_LIST_DICT[ line[1] ] = line[2]                                            # map url->saved_file
-            VIDEO_LIST[idx][0] = "%.01fM" %float(os.path.getsize(fullfname)/(1024*1024))    # remember size (and mark that is downloaded)
-            VIDEO_LIST[idx][5] = vdict[maxres]                                              # remember real resource url
+            VIDEO_LIST_DICT[ GetLine('url',cutSuffix=True) ] = GetLine('fname')             # map url->saved_file
+            ChangeLine( 'size', "%.01fM" %float(os.path.getsize(fullfname)/(1024*1024)) )   # remember size (and mark that is downloaded)
+            ChangeLine( 'to_download', vdict[maxres] )                                      # remember real resource url
             util.save_data_file( file_videolist,  VIDEO_LIST )
             changeFlag = False
 
@@ -1512,6 +1564,7 @@ def executeVIDEO():
     global VIDEO_LIST, VIDEO_LIST_SET, load_queue
 
     VIDEO_LIST, VIDEO_LIST_SET = util.load_data_file( FILE_VIDEO, main_col=2 )
+    start_video_idx = None
     for load in load_queue:
         if load[0]=='value':
             if load[1] in ['','*']:
@@ -1519,11 +1572,13 @@ def executeVIDEO():
                 start_video_idx = 0
             else:
                 # 'Add a new URL'
-                start_video_idx = len(VIDEO_LIST)
+                if start_video_idx is None:
+                    start_video_idx = len(VIDEO_LIST)
                 VIDEO_LIST.append( load[3] )
         elif load[0]=='file':
             lines = map( lambda s: (s.split('\t')+[''])[:2], filter(len, load[3].splitlines() ) )
-            start_video_idx = len(VIDEO_LIST)
+            if start_video_idx is None:
+                start_video_idx = len(VIDEO_LIST)
             for l in lines:
                 if not util.is_any_find( l[0], ['youtube.com/','youtu.be/','vimeo.com/','vk.com/'] ):
                     say("Неизвестный видеохостинг: %s", l[0])
@@ -1534,8 +1589,130 @@ def executeVIDEO():
                     VIDEO_LIST.append( ['', l[0], l[1] ] )
         else:
             raise FatalError("Внутренняя ошибка - неизвестный тип объекта в очереди")
+        util.save_data_file( FILE_VIDEO,  VIDEO_LIST )
 
         downloadVideo( FILE_VIDEO, start_video_idx )
+
+
+# Парсинг стенки и диалогов через m.vk.com чтобы найти верный access token для текущей сессии
+def  extendedVKVideoParse( url ):
+
+    def findVKVideo( content ):
+        ##DBG.trace( u'\n%s' % content )
+        idx = content.find(url_to_find)
+        if idx<0:
+            return None
+        DBG.trace( content[idx:].splitlines()[0])
+        pattern = '(%s\?list=[0-9a-fA-F]+)'%url_to_find
+        match = re.search(pattern, content)
+        DBG.trace('something found. pattern=%s, match=%s', [pattern,match])
+        if not match:
+            DBG.TODO('failed to get listid for %s'%url_to_find)
+            return None
+
+        DBG.trace('load %s' % match.group(0) )
+        url = 'https://vk.com'+match.group(0)
+        response = session.get( url  )
+        DBG.trace( u'\n%s', str_decode( response._content ) )
+        idx_f = response._content.find("\najax.preload('al_video.php',")
+        values=[]
+        if idx_f>0:
+            htmlline = response._content[idx_f+1:].splitlines()[0].replace('\\\\','\\').replace('\\/','/')
+            values =  htmlline.split('"url')
+            return htmlline, values
+        return None
+
+    url, got_from = url.split('|')
+    url_to_find = ('/video'+url.split('/video')[1]).split('?list=')[0]
+    DBG.trace( "extendedVKVideoParse: %s", [[url_to_find,got_from]] )
+
+    if got_from.startswith('wall'):
+        if got_from.find('_')<0:
+            DBG.trace("# wall_id not given - scan first 100 records")
+            res = vk_api.wall.get(owner_id=int(got_from[4:], count=100))
+            for c in res[u'items']:
+                fwd = m.get(u'fwd_messages',[])
+                attachments = list( m.get(u'attachments',[]) )
+                for f in fwd:
+                    attachments += f.get( u'attachments', [] )
+                for a in attachments:
+                    if u'wall' in a:
+                        a = a[u'wall']
+                        hist = a.get( u'copy_history', [a] )[0]
+                        attachments += hist.get(u'attachments', [])
+                for a in attachments:
+                    if u'video' in a:
+                        a = a[u'video']
+                        videoid = "/video%s_%s" % ( a.get(u'owner_id',0), a.get(u'id',0) )
+                        if videoid == url_to_find:
+                            got_from += "_%d" % res[u'id']
+                            break
+                if got_from.find('_')>0:
+                    break
+
+        DBG.trace('session.get("https://m.vk.com/%s")' % got_from )
+        response = session.get( "https://m.vk.com/%s" % got_from )
+        rv = findVKVideo( response._content )
+        if rv:
+            return rv
+        return ['',[]]
+
+
+    peer, msgid = got_from.split('_')
+    msgid = int(msgid)
+    re_msgid = re.compile('<a +name="msg([0-9]+)"')
+    err_pattern = '<a name="msg%s"' % msgid
+
+    # Initialize cookies (needed to give non-empty an answer from VK)
+    session.cookies.set("remixflash","15.0.0")
+    session.cookies.set("remixscreen_depth","24")
+    session.cookies.set("audio_vol","11")
+    session.cookies.set("remixrefkey","f53ccbec41bfb820c6")
+    session.cookies.set("remixseenads","0")
+    session.cookies.set("audio_time_left","0")
+    session.cookies.set("remixdt","0")
+    session.cookies.set("remixtst","6b2275e1")
+    session.cookies.set("remixmdevice","1920/1080/1/!!-!!!!")
+    session.cookies.set("remixmdv","JhlfJclfjPOUzOW6")
+    ##DBG.trace( "COOKIES\n>>>\n%s\n<<<", [ session.cookies.get_dict() ] )
+
+    for offset in xrange(0,2000,20):
+        url = "https://m.vk.com/mail?act=show&%s&offset=%d" % (peer,offset)
+        DBG.trace('session.get("%s")' % url )
+
+        """
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:28.0) Gecko/20100101 Firefox/28.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': url
+        }
+
+        response2 = session.post(url, data="_ajax=1", headers=headers) #
+        DBG.trace(u'response2\n%s', [response2._content])
+        """
+
+        response = session.get( url )
+        rv = findVKVideo( response._content )
+        if rv:
+            return rv
+        if response._content.find(err_pattern)>=0:
+            DBG.TODO('Not found video %s|%s but exists %s', [url,got_from,err_pattern] )
+        for match in re_msgid.finditer(response._content):
+            if int(match.group(1)) > msgid:
+                DBG.trace('found %s' % match.group(1))
+                break
+        else:
+            DBG.TODO('Nothing found in message. Maybe need to fix cookies.')
+            DBG.trace('no greater than %s found' % msgid )
+            # no msgid greater than required found - stop scan
+            return ['',[]]
+    DBG.trace('offset = %s' % offset)
+    # scan too far - stop it
+    return ['',[]]
+
+
 
 
 """
@@ -1997,6 +2174,7 @@ def executeWALL():
         BLOCK_SIZE = 50 if not CONFIG['LOAD_LIKES'] else 30
         MSG_CACHE = {}
         MSG_CACHE_FILES = {}
+        got_from = "wall%s"%(load[1])
         while True:
             res = vk_api.wall.get( owner_id=load[1], offset=offs, count=BLOCK_SIZE, filter='all', extended=1 )
             DBGprint( 6, "%d: ln=%d" % (offs,len(res[u'items']) ) )
@@ -2008,9 +2186,9 @@ def executeWALL():
             vk_utils.lazy_profile_batch += preload
 
             if isHTML and CONFIG['WALL_QUICKUPDATE']:
-                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler )
+                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler, got_from = got_from )
             else:
-                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML )
+                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, got_from = got_from )
 
             # auto-save wall and lists (on case of fail inside)
             if CONFIG['WALL_QUICKUPDATE']:
@@ -2335,9 +2513,10 @@ def executeMESSAGE():
                 if CONFIG.get('NOT_KEEP_IF_MINE',False) and util.make_int(m.get(u'from_id',1))==me:
                     config.CONFIG['KEEP_LAST_SECONDS'] = 0
 
-            id = get_msg( res )
+            got_from = "%s=%s"%(load[0],load[1])
+            id = get_msg( res, got_from = got_from )
             while id > 0:
-                id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ) )
+                id = get_msg( vk_api.messages.getHistory( start_message_id=id, offset=-1, count = 200, **kw ), got_from = got_from )
             say()
 
             if IF_DELETE==0:
@@ -2347,7 +2526,7 @@ def executeMESSAGE():
                 continue
 
             # 4. WRITE TO TGT FILE --> only text is supported now
-            TGT_FILE = '%s/%s_%s.txt' % ( BASEDIR, MAIN_PROFILE, load[2] )
+            TGT_FILE = str_encode( u'%s/%s_%s.txt' % ( BASEDIR, str_decode(MAIN_PROFILE), str_decode(load[2]) ) )
             firstTimeFlag = not os.path.exists(TGT_FILE)
             tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_BINARY )
             if not tmpfp:

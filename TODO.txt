@@ -5,18 +5,6 @@ TODO:
 	* wall backup_mode - if any comments were removed - leave "copy"
 			   - messages/indexes got from latest cache
 
-	* FAIL TO RESOLVE NAME VK_VIDEO
-	   	A) https://vk.com/video-76655905_170601121
-			remember field u'access_key' -76655905_170601121_d01058ede2fc9d6836
-			http://vk.com/event76655905?z=video8296250_171047782%2F66c977c640559dbaa3
-			http://vk.com/im?sel=8296250&z=video-75259975_170512741%2F7418c0716613586937
-
-		B) https://vk.com/video-82731295_171118372 
-			response: { count: 1, items: [] }
-			--> scan wall.get (bulk=100) and getComments(???) just to find this... 
-			    maybe better to try open it and extract from html
-
-
 	* FAIL TO DECRYPT YOUTUBE
 		http://youtu.be/nYwe_WHARdc 
 			--> fail to decrypt again
@@ -33,6 +21,8 @@ TOCHECK:
 	--INVISIBLE_MODE - test different values + interactive
 	load by day, wall_dedupe, wall_hide_only_image
 	vk cache separate_media
+	HOW DOWNLOAD private video from NOT FIRST PAGE(>20msg)
+	HOW DOWNLOAD private photos(??not a problem i think)
 
 TODO:
 	for {MACHINE} say ddmmyy only if it is different day of message or on the border (>22:00 or <02:00). and give ddmm
@@ -44,6 +34,8 @@ TODO:
 
 	WHY lastdel_time,stoptime could be int?
 	simplify output (vk:...) and command (vk_*)
+
+	
 
 TODO:
 	hide deduped post in index file
@@ -72,6 +64,15 @@ TODO:
 #       + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676376236216&ip=46.164.135.35&key=yt5&itag=135&mime=video%2Fmp4&keepalive=yes&clen=6460073&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=7F632C563F0569E34285FF2CBA466B3B869854A2.86D712EDC84F694A70F725436D4E8DC5252B79CC&pl=22&mm=31&dur=453.968&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&init=0-709&fps=30&size=804x480&type=video/mp4;+codecs="avc1.4d401f"&index=710-1833&bitrate=297257&
 # AGAIN can't decrypt:: http://youtu.be/nYwe_WHARdc
 
+
+DONE:
+	* FAIL TO RESOLVE NAME VK_VIDEO
+	  Private videos required access_key which is changed from session to session. So we can't get from vk_api and than download with full auth.
+	  WORKAROUND: write exact source from which it comes (user, chat, wall) and try to parse it as m.vk.com
+	  KNOWN BUGS:	1) cookies required to get wall are hardcoded so this could be failed in futher
+			2) When copy url from address bar of browser it contains unusable (because dif session) access_key and no info about exact source.
+			   We try to find, although not sure
+	 
 DONE:
 	Refactoring (move out config, vk_utils)
 	Token backup

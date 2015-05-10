@@ -249,7 +249,7 @@ class DBG(object):
             prefix = unicformat(*kw,**kww)
         t, value, tb = sys.exc_info()
         frame= tb[0]
-        txt = unicformat( u"%s %s:%s at %s:%s {%s}", ( prefix, type(t), value, frame[1],frame[2],fname[3] ) )
+        txt = unicformat( u"%s %s:%s at %s:%s {%s}", ( prefix, type(t), value, frame[1],frame[2],frame[3] ) )
         DBG._log( DBG.level_exception, txt )
         return message
 
@@ -257,7 +257,7 @@ class DBG(object):
     def TODO( *kw, **kww ):
         frame = inspect.stack()[1]
         txt = unicformat(*kw,**kww)
-        txt += u" at %s:%s {%s}" % (frame[1],frame[2],fname[3])
+        txt += u" at %s:%s {%s}" % (frame[1],frame[2],frame[3])
         DBG.say( 0, txt )
 
     @staticmethod

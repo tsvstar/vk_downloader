@@ -112,7 +112,7 @@ def main():
     except RequestException as e:
         util.say( "Ошибка сети: %s", e )
     except Exception as e:
-        util.say( unicode(e) )
+        util.say( util.str_decode(str(e)) )
         sys.stderr.write("%s: %s\n"%(type(e), str(e)))
         print traceback.print_exc()     #file=sys.stdout)
 

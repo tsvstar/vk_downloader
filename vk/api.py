@@ -74,7 +74,7 @@ class APISession(object):
         if self.logAnswer or self.logRequest:
             if not os.path.exists(LOG_DIR):
                 os.makedirs(LOG_DIR)
-            SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s)" % (access_token, user_login, timeout) )
+            SayToLog( "vk.API(access_token=%s; user_login=%s; timeout=%s; scope=%s)" % (access_token, user_login, timeout,scope) )
 
         if (not user_login or not user_password) and not access_token:
             raise ValueError('Arguments user_login and user_password, or access_token are required')
