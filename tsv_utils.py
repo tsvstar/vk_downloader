@@ -374,9 +374,9 @@ def save_data_file( fname, lst, sep = '\t', enc='utf-8', src_enc = None ):
     with codecs.open(fname,'w',enc) as f:
         for l in lst:
             if src_enc is None:
-                f.write( sep.join(l) + '\n' )
+                f.write( sep.join( map(lambda s: str_decode(s,src_enc),l) ) + u'\n' )
             else:
-                f.write( str_decode( sep.join(l), src_enc ) + u'\n' )
+                f.write( str_decode( sep.join(map(lambda s: str_decode(s,src_enc),l))) + u'\n' )
 
     if DBG.level >= DBG.TRACE:
         DBG.trace("save_data_file('%s',%s)", [fname,lst])

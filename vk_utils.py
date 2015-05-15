@@ -338,6 +338,12 @@ class BatchExecutor():
                 ar[2]=None
         self.result += result
 
+    def __str__( self ):
+        return "BatchExecutor(%x)" % (id(self))
+
+    def __nonzero__(self):
+        return 1
+
     def __getattr__(self, method_name):
         return vk.api.APIMethod(self, method_name)
 
@@ -366,12 +372,14 @@ class BatchExecutor():
 
 ===============================================
 """
-def CachedVKAPI( object ):
+class CachedVKAPI( object ):
 
     def __init__( self, vk_api, batch_executor = None ):
         self.vk_api = vk_api
-        if batch_executor:
+        if batch_executor is not None:
             self._prepare_ = batch_executor
+            print batch_executor
+            print batch_executor.vk_api
         else:
             self._prepare_ = BatchExecutor( vk_api )
         self._resMap = {}
@@ -386,6 +394,12 @@ def CachedVKAPI( object ):
     def cleanCache( self ):
         self._resMap = {}
         self._prepare_.commands = []
+
+    def __str__( self ):
+        return "CachedVKAPI(%x)" % (id(self))
+
+    def __nonzero__(self):
+        return 1
 
     def __getattr__(self, method_name):
         return vk.api.APIMethod(self, method_name)

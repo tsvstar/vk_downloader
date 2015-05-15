@@ -613,7 +613,7 @@ def main():
 
         # c) 2nd pass (actually execute watchers)
         for idx in [0,1]:
-            pool.vk_api[idx] = vk_utils.CachedVKAPI( pool.vk_api[idx].vk_api, pool.vk_api[ix] )
+            pool.vk_api[idx] = vk_utils.CachedVKAPI( pool.vk_api[idx].vk_api, pool.vk_api[idx] )
 
         for c in pool.watchers:
             try:

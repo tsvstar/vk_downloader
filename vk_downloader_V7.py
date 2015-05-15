@@ -2539,6 +2539,7 @@ def executeMESSAGE():
 
             keys = messages.keys()
             keys.sort()
+            prev_dir = ''
             for k in keys:
                 v = messages[k]
                 t = time.localtime(v[0])
@@ -2561,7 +2562,13 @@ def executeMESSAGE():
                 if CONFIG['WRITE_MSGID']:
                     os.write( tmpfp, "%s\n" % k )
                 pref_who = get_msgdirection( v, me )
-                to_log_body = to_remember.append( time.strftime("%d.%m %H:%M "+pref_who,t) +"\t"+str_decode(v[2]) )
+                tmsg = time.strftime("%d.%m %H:%M ",t)
+                if pref_who==prev_dir:
+                    tmsg = '\t'
+                    pref_who = ''
+                else:
+                    prev_dir = pref_who
+                to_log_body = to_remember.append(  tmsg +pref_who +"\t"+str_decode(v[2]) )
                 #to_log_body = to_remember.append( time.strftime("%d.%m %H:%M",t) +"\t"+str_decode(v[2]) )
                 body = v[2].replace('  ',' ').split('\n')               # squeeze spaces (mostly between smiles)
                 how_many_t = "\t\t\t" if load[0]=='chat' else "\t\t"
