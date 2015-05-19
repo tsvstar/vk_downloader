@@ -563,7 +563,9 @@ def get_msg( lst, key_body = u'body', reinitHandler = None, html = False, cacheH
             ##print msg_cached
             if msg_cached is not None:
                 ##print int(msg_cached[4]), count_comments, int(msg_cached[5]), count_likes
-                if int(msg_cached[4])>=count_comments and int(msg_cached[5])>=count_likes:
+                if CONFIG.get('WALL_BACKUP',False) and (int(msg_cached[4])>count_comments or int(msg_cached[5])>count_likes):
+                    globals()["MSG2BACKUP"].append(id)
+                elif int(msg_cached[4])>=count_comments and int(msg_cached[5])>=count_likes:
                     ##print "!RESTORED!"
                     # NO NEED FOR UPDATE - comments and likes are same
                     ##messages[id] = [ t, who ]
@@ -1887,7 +1889,7 @@ def executeMP3():
 def executeWALL():
     global load_queue, MAIN_PROFILE, IF_DELETE, start_video_idx
     global list_to_del, messages
-    global cacheHandler, MSG_CACHE, MSG_CACHE_FILES
+    global cacheHandler, MSG_CACHE, MSG_CACHE_FILES, MSG2BACKUP
 
     say( "\nНастройки сохранения стены:" )
     util.print_vars( ['WALL_QUICKUPDATE', 'DOWNLOAD_AS_HTML', 'LOAD_COMMENTS', 'LOAD_LIKES', 'SEPARATE_TEXT'], CONFIG )
@@ -2071,6 +2073,7 @@ def executeWALL():
                         t = time.localtime(v[0])
                         timestr = time.strftime("%d.%m.%y %H:%M", t )
 
+                        # CASE 1: TEXT SAVE - no any extra action
                         if not html:
                             f.write( "===== %s (%s) %s =====\n\n" % ( timestr, str_encode(DAYS[t.tm_wday]), make_profiletext(v[1]) ) )
                             f.write( v[2].strip() +"\n\n")
@@ -2088,7 +2091,8 @@ def executeWALL():
                                 f.write( "\n%s\n\n" % c[2] )
 
                         elif len(v)==1:
-                            # RESTORE FROM MSG_CACHE
+                            # CASE 2: RESTORE FROM MSG_CACHE COMPLETELY
+                            #   trigger - there is nothing in stored in message - so nothing were changed
                             # [ 0owner, 1id, 2time, 3who, 4remark, 5likes, 6preview_text, 7is_only_img_attach, -1body ]
                             msg = MSG_CACHE[k]
                             f.write('<!--\tWALL\t%s\tRESTORED-->\n' % ('\t'.join(msg[:-1])) )
@@ -2104,6 +2108,10 @@ def executeWALL():
                             preview[k] = [ os.path.basename(TGT_FILE), msg[2], msg[3], msg[6] ]
 
                         else:
+                            # CASE 3: REMEMBER THE MESSAGE (something was changed)
+                            # a) likes or comments are encreased
+                            # b) likes/comments are decreased and WALL_BACKUP=True
+
                             preview[k] = [ os.path.basename(TGT_FILE), v[0], v[1], v[5] ]
                                                                                           #0owner,1id,2time,3who, 4remark,  5likes,    6preview text,  7is_only_img_attach
                             f.write('<!--\tWALL\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t-->\n' % (load[1],k, v[0],v[1], len(v[3]), len(v[4]), v[5],           v[6]) )
@@ -2138,6 +2146,22 @@ def executeWALL():
                                 #f.write('<tr><td><td bgcolor=#F0F0F0><i>Likes: %s</i></td>\n' % likes )
                                 f.write('<tr><td><td bgcolor=#F0F0F0><table border=0><tr><td><i>Likes</td><td><i>%s</i></td></table></td>\n' % likes )
                             f.write('</table>\n<HR>\n')
+
+                            # ... Process WALL_BACKUP
+                            if CONFIG['WALL_BACKUP'] and (k in MSG_CACHE):
+                                msg_cached = MSG_CACHE[k]
+                                body = msg_cached[-1]
+
+                                # a) values were decreased - add last entry to backup list
+                                if (k in MSG2BACKUP):
+                                    f.write('<!--\tBACKUP\t%s\\tRESTORED-->\n' % ('\t'.join(msg_cached[:-1])) )
+                                    f.write( body )
+                                # b) values were increased - keep previous backup list
+                                else:
+                                    ar = body.split('<!--\tBACKUP\t',1)
+                                    if len(ar)>1:
+                                        f.write('<!--\tBACKUP\t'+ar[1])
+
                             f.write('<!--\tSTOPWALL\t%d\t%d\t-->\n\n' % (load[1],k))
 
                     if html:
@@ -2174,10 +2198,11 @@ def executeWALL():
         BLOCK_SIZE = 50 if not CONFIG['LOAD_LIKES'] else 30
         MSG_CACHE = {}
         MSG_CACHE_FILES = {}
+        MSG2BACKUP = []                         # id of messages which comments/likes were decreased
         got_from = "wall%s"%(load[1])
         while True:
             res = vk_api.wall.get( owner_id=load[1], offset=offs, count=BLOCK_SIZE, filter='all', extended=1 )
-            DBGprint( 6, "%d: ln=%d" % (offs,len(res[u'items']) ) )
+            DBG.trace( "%d: ln=%d" % (offs,len(res[u'items']) ) )
             offs += BLOCK_SIZE
             if len(res[u'items'])==0:
                 break
@@ -2186,9 +2211,9 @@ def executeWALL():
             vk_utils.lazy_profile_batch += preload
 
             if isHTML and CONFIG['WALL_QUICKUPDATE']:
-                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler, got_from = got_from )
+                minid = get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, cacheHandler=cacheHandler, textHandler = textHandler, got_from = got_from )
             else:
-                get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, got_from = got_from )
+                minid = get_msg( res, key_body = u'text', reinitHandler = mediaHandler, html=isHTML, got_from = got_from )
 
             # auto-save wall and lists (on case of fail inside)
             if CONFIG['WALL_QUICKUPDATE']:
@@ -2197,6 +2222,8 @@ def executeWALL():
                 ##util.print_mark('!')
                 save_mp3_video()
                 ##util.print_mark('<')
+            if minid<0:
+                break
 
         # Final write with index (in progress we do not write index because it partial and we spam with names)
         writeWall( textHandler, templateTitle,  html=isHTML, writeIndex = True )

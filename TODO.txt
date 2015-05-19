@@ -2,9 +2,6 @@ TODO:
 	* A LOT OF LOGGING - WHY sometimes broke database (unsafe cleaning happens)
 	LOGGING: debug - - why happens unsafe cleaning?
 
-	* wall backup_mode - if any comments were removed - leave "copy"
-			   - messages/indexes got from latest cache
-
 	* FAIL TO DECRYPT YOUTUBE
 		http://youtu.be/nYwe_WHARdc 
 			--> fail to decrypt again
@@ -77,6 +74,9 @@ DONE:
 			2) When copy url from address bar of browser it contains unusable (because dif session) access_key and no info about exact source.
 			   We try to find, although not sure
 	 
+	* WALL_BACKUP - if any comments were removed - leave "copy"
+			   - messages/indexes got from latest cache
+
 DONE:
 	Refactoring (move out config, vk_utils)
 	Token backup
