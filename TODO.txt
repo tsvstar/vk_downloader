@@ -25,7 +25,12 @@ TOCHECK:
 	HOW DOWNLOAD private photos(??not a problem i think)
 
 TODO:
+	restore "user" --RESTORE_DEPTH=XX[m|h|d|y]
+	--SAFE_RESTORE=XX[m|h|d|y]:
+		batch get history, scan for non me2me deleted, append to temp file, restore them, ....action, finally: load the file and delete
+	--DOWNLOAD_DEPTH=XX[m|h|d|y]
 	for {MACHINE} say ddmmyy only if it is different day of message or on the border (>22:00 or <02:00). and give ddmm
+	for watcher - remember prev message. if now *=0, -=to same dir then send nothing
 	correct say in {MACHINE} msg (now it say first msg of sequence not last one) --- NO IT SAY FROM WHICH IT STORE, FROM WHICH IT DEL. MAYBE GIVE RANGE?
 	add direction (</>) to {MACHINE}	- get from getById() if marked is deleted
 	do not remove messages with video on enforced remove
@@ -34,7 +39,6 @@ TODO:
 
 	WHY lastdel_time,stoptime could be int?
 	simplify output (vk:...) and command (vk_*)
-
 	
 
 TODO:

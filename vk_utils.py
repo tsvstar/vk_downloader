@@ -365,8 +365,18 @@ class BatchExecutor():
     vk_api = vk_utils.CachedVKAPI(vk_api)
     vk_api._prepare_.users.get(id=me)                       # prepare cache - just give usual command with prefix _prepare_
     vk_api._prepare_.messages.restore(message_id=409027)    #
-
     vk_api.users.get(id=me)            # just use vk_api as regular one; if query was cached - cached value will be used
+
+  or
+
+    vk_api = vk_utils.CachedVKAPI(vk_api)
+    vk_api.doPrepareOnly = True
+    vk_api.users.get(id=me)                       # prepare cache - just give usual command with prefix _prepare_
+    vk_api.messages.restore(message_id=409027)    #
+    vk_api.doPrepareOnly = False
+    vk_api.users.get(id=me)            # just use vk_api as regular one; if query was cached - cached value will be used
+
+
 
   Any new batch preloading could be done at any moment. Cache could be cleaned using vk_api.cleanCache()
 
@@ -378,11 +388,10 @@ class CachedVKAPI( object ):
         self.vk_api = vk_api
         if batch_executor is not None:
             self._prepare_ = batch_executor
-            print batch_executor
-            print batch_executor.vk_api
         else:
             self._prepare_ = BatchExecutor( vk_api )
         self._resMap = {}
+        self.doPrepareOnly = False
         self._rememberUncached = False              # If True - then result of uncached requests will be cached implicitly
                                                     # (this could cause unexpected missing call - because next calls got from cache)
 
@@ -402,10 +411,15 @@ class CachedVKAPI( object ):
         return 1
 
     def __getattr__(self, method_name):
+        if self.doPrepareOnly:
+            return getattr( self._prepare_, method_name )
         return vk.api.APIMethod(self, method_name)
 
     def __call__(self, method_name, **kww):
         ID_CMD = "%s:%s" % ( method_name, repr(kww).replace("'",""))
+
+        if self.doPrepareOnly:
+            return self._prepare_.__call__( method_name, **kww )
 
         # If not cached yet but something was added to queue - execute queue first
         if ID_CMD not in self._resMap:
