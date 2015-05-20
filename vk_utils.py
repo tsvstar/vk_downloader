@@ -293,7 +293,7 @@ class BatchExecutor():
         self.vk_api = vk_api
         self.commands = []          # list of triples [ ["cmd:ID", method, kww] ]
         self.result = []            # list of pairs [ ["cmd:ID", answer, errorCode] ]
-        self.resultMap = {}         # map: {"cmd:ID": [answer,errorCode]}
+        self.resultMap = {}         # map: {"cmd:ID": [answer,errorCode(None-no error)]}
 
     def execute( self ):
         self.result = []
@@ -305,6 +305,7 @@ class BatchExecutor():
             self.commands = self.commands[25:]
             offset += 25
         self._execute(self.commands[:25], offset)
+        self.commands = []
 
         for id, answer, err in self.result:
             self.resultMap[id] = [answer,err]

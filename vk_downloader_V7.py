@@ -1073,6 +1073,65 @@ def PreprocessLoadQueue():
 #     ACTION 'restore'                      #
 #############################################
 """
+
+# PURPOSE: GENTLY DETECT OF LAST MESSAGE(scan up from last)
+#       Long time deleted messages could have date=0, so we have no stop-signal and need to scan up everything
+# RETURN VALUE: ( last_non_deleted_msg_id, last_real_msg_id, loaded messages)
+def FindRealLast():
+    # Get last active message
+    last_msg = vk_api.messages.get(count=1)[u'items']
+    if not len(last_msg):
+        last_msg= [ {u'id':0}]
+    last_active = last = last_msg[0][u'id']
+
+    # Check stored ids (could contain deleted message id which is bigger than last active)
+    if 'msg_util_val' in globals():
+        global msg_util_val
+        for id, values in msg_util_val.iteritems():
+            try: last = max([last, int(values[0]), int(values[1])])   # + stop_id, lastdel_id
+            except: pass
+
+    msgs = LoadBlock( last+1, direction=1, NUM_OF_BLOCKS=10)
+    msgs1 = filter(lambda v: v.get(u'date')>0, msgs)
+    DBG.trace("FindRealLast(): last_active=%s, last_from_cfg=%s, loaded_non_empty=%s",[last_active,last,len(msgs1)])
+    if not msgs1:
+        last = last_active
+        msgs=[]
+    else:
+        last = max( map(lambda v: v[u'id'],msgs) )
+
+    msgs = dict( map(lambda v: [v[u'id'],v],msgs) )
+    return last_active, last, msgs
+
+
+# Load NUM_OF_BLOCKS*100 messages before(direction<0) or after(direction>0) of "start"
+def LoadBlock(start, direction, NUM_OF_BLOCKS):
+    BLOCK_SIZE = 100        # MAX SIZE IN FOR getById is 100 ids
+    #NUM_OF_BLOCKS = 10      # NOT MORE THAN 25 (TO KEEP INSIDE OF ONE BLOCK)
+    batcher = vk_utils.BatchExecutor( vk_api )
+    ids_ar = []
+    for idx in range(0,NUM_OF_BLOCKS):
+        minid = start if direction>0 else start-BLOCK_SIZE
+        if minid<1: minid = 1
+        maxid = start+BLOCK_SIZE if direction>0 else start
+        if minid<=maxid:
+            ids_ar.append( ','.join( map(str, range( minid, maxid ) ) ) )
+        start += BLOCK_SIZE if direction>0 else (-BLOCK_SIZE)
+
+    msgs = []
+    if not ids_ar:
+        return msgs
+
+    for ids in ids_ar:
+
+        batcher.messages.getById(message_ids=ids, preview_length=1)
+    ##DBG.trace('execute %s-%s', [msg_id,msg_id1])
+    _,res= batcher.execute()
+    for v in res.values():
+        msgs += v[0].get(u'items',[])
+    return msgs
+
+
 def executeRESTORE( WHAT, RESTORE_FLAG ):
     global me, load_queue
 
@@ -1108,128 +1167,110 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
 
         min_id = min(to_restore)
         # If negative value given (or *) - detect last message id and try to restore last N messages
+        msgs = {}
         if min_id < 0:
-             last_msg = vk_api.messages.get(count=1)[u'items']
-             if not len(last_msg):
-                #AGRESSIVE DETECT OF LAST MESSAGE
-                msg_id = vk_api.messages.send( user_id=int(me), message='detect%06d' % random.randint(0,999999) )
-                vk_api.messages.delete( message_ids=msg_id )
-             else:
-                # GENTLY DETECT OF LAST MESSAGE(scan up from last until date==0)
-                BLOCK_SIZE = 50
-                msg_id = last_msg[0][u'id']+1
-                while True:
-                    ids = ','.join( map( str, range(msg_id, msg_id+BLOCK_SIZE+1) ) )
-                    msg = vk_api.messages.getById(message_ids=ids)[u'items']
-                    msg = filter(lambda item: item[u'date']<=0, msg)
-                    if len(msg):
-                        msg = map(lambda item: item[u'id'],msg)
-                        msg_id = min(msg)
-                        break
-             to_restore += range( msg_id+min_id, msg_id )
+            global msg_util_val
+            msg_util_val = util.load_dict_file( FILE_MAIN, key_sep='=', val_sep=',' )
+            ( last_active, last, msgs ) = FindRealLast()
+            to_restore += range( last+min_id, last )        # restore down "min_id" messages (negative value) from last real message
 
+
+            ##{k: v for k, v in points.iteritems() if v[0] < 5 and v[1] < 5}
         to_restore = set( filter(lambda v: v>0, to_restore) )
 
-        # function to finalize Block
-        def restorePostBlockJob( id, restoredlst, restoredusers ):
-                datelst = []
-                todel = []
-                try:
-                    restored_str_lst = [str(id)] + map(lambda i: str(i), restoredlst)
-                    msglst = vk_api.messages.getById( preview_length=20, message_ids = ','.join(restored_str_lst) )[u'items']
-                    datelst = map(lambda item: item[u'date'], msglst)
-                    for item in msglst:
-                        if str(item[u'id']) not in restoredlst:
-                            continue
-                        if (now - item[u'date'])>RESTORE_FLAG*60:       # delete again message which are out of given range
-                            todel.append(item[u'id'])
-                            continue
-                        ##util.print_mark("[%d]"%(now - item[u'date']))
-                        if item[u'user_id']!=me:                        # ..mark restored users
-                            restoredusers.add(int(item[u'user_id']))
-                            continue
+        # Batch load of all absent messages
+        to_load = sorted( to_restore - set(msgs.keys()) )
+        batcher = vk_utils.BatchExecutor( vk_api )
+        if to_load:
+            BLOCK_SIZE = 100        # MAX SIZE IN FOR getById is 100 ids
+            while to_load:
+                ids = ','.join( map(str, to_load[:BLOCK_SIZE] ) )
+                to_load = to_load[BLOCK_SIZE:]
+                batcher.messages.getById(message_ids=ids, preview_length=1)
+            ##DBG.trace('execute %s-%s', [msg_id,msg_id1])
+            _,res= batcher.execute()
+            msgs1=[]
+            for v in res.values():
+                msgs1 += v[0].get(u'items',[])
+            msgs1 = dict( map(lambda v: [v[u'id'],v],msgs1) )
+            msgs.update(msgs1)
 
-                        body = item.get(u'body','').lower()
-                        if ( len(body)==12                              # delete again message with PATTERN: 'detect123456' from yourself
-                             and body.startswith('detect') ):
-                                todel.append(item[u'id'])
-                        elif ( body[:8] in ['groupvk=','reportvk'] ):     # delete again auxilary commands and report of group
-                                todel.append(item[u'id'])
-                        elif ( body[:3].lower() in ['vk_','vk:'] ):
-                                todel.append(item[u'id'])
-                        else:
-                            restoredusers.add(int(item[u'user_id']))
+        def finalizeRestoreBlock():
+            DBG.trace("finalizeRestoreBlock() queue:%s", [queue])
+            if not mark:
+                return
+            if queue:
+                r = {}
+                for idx, item in queue:
+                    batcher.messages.restore(message_id = item[u'id'],_ID_CMD=idx)
+                    r[idx]=item
+                _,resMap = batcher.execute()
+                DBG.trace(resMap)
+                for idx, res in resMap.iteritems():
+                    idx = int(idx)
+                    if res[1] is not None:
+                        mark[idx] = '?'
+                    else:
+                        mark[idx] = '.'
+                        restoredlst.append(int(r[idx][u'id']))
+                        restoredusers.append( int(r[idx][u'user_id']) )
+                    ##DBG.trace("DBG:%s/%s/%s", [idx, r[idx][u'id'], res[1]])
+            sout = ''.join(mark)
+            ##DBG.info( "%s",  [sout] )
+            if last_msg is None:
+                say( "%s", [sout])
+            else:
+                suff = "(msgid=%d) %s%s" % ( last_msg[u'id'],
+                                           '' if last_msg[u'date']==last_date else 'before ',
+                                           time.strftime("%d.%m.%y %H:%M", time.localtime(last_date)) )
+                say( "%s%s", [sout,suff] )
+                ##DBG.info(suff)
 
-                except Exception as e:
-                    say( "%s", e )
 
-                # remove all auxilary "detect" messages
-                if todel:
-                    util.print_mark("{@tsv_delaux:%s}"%','.join(map(lambda s: str(s),todel)))
-                    vk_api.messages.delete( message_ids=','.join(map(lambda s: str(s),todel)) )
-
-                if not len(datelst):
-                    util.print_mark( "(msgid=%d)\n" % id )
-                    return None
-                else:
-                    d = min(datelst)
-                    ##util.print_mark("[%d]/%s"%(now - d,RESTORE_FLAG*60))
-                    util.print_mark( "(msgid=%d) %s\n" % ( id, time.strftime("%d.%m.%y %H:%M", time.localtime(d)) ) )
-                    return d
-
-        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s/%s минут)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO', RESTORE_FLAG] )
-        idx = 0
+        #Scan of messages and try to restore
+        idx_block = 0
         BLOCK_SIZE = 50
         restoredlst = []
         restoredusers = set()
         now = time.time()
-        for id in reversed( sorted( to_restore ) ):
-            # a) BLOCK PRE-JOB
-            if idx%BLOCK_SIZE == 0:
-                # a1) find existed to ignore id
-                msgids = ','.join(map(str,range(id-BLOCK_SIZE-1,id+1)))
-                msglst = vk_api.messages.getById( preview_length=1, message_ids = msgids )[u'items']
-                msg = filter( lambda item: item[u'date']<=0 or not item.get(u'deleted',0), msglst )
-                to_ignore = set( map(lambda item: item[u'id'], msg) )
-                ##print "@tsv_to_ignore", to_ignore
-
-                # a2) also ignore messages to yourself if MACHINE=True
-                to_ignore2 = set()
-                if CONFIG.get('MACHINE'):
-                    msg = filter( lambda item: item[u'user_id']==me, msglst )
-                    to_ignore2= set( map(lambda item: item[u'id'], msg) )
-
-            # b) MAIN JOB
-            try:
-                if id in to_ignore:
-                    util.print_mark("-")                # mark '-' = existed message
-                elif id in to_ignore2:
-                    util.print_mark("^")                # mark '^' = message to yourself
-                else:
-                    vk_api.messages.restore( message_id = id )
-                    restoredlst.append(id)
-                    util.print_mark(".")                # mark '.' = succesfully restored
-            except vk.api.VkAPIMethodError as e:
-                util.print_mark("?")                    # mark '?' = failed to restore
-                #print e
-            finally:
-                idx += 1
-
-            # c) POST-BLOCK JOB: mark restored users, remove auxilary, print output
-            if idx%BLOCK_SIZE == 0:
-                d = restorePostBlockJob( id, restoredlst, restoredusers )
-                restoredlst = []
-
-                if d is None:
-                    continue
-                if RESTORE_FLAG>0 and ( ( now - d ) > RESTORE_FLAG*60):
+        queue = []          # queue to restore [ [idx_in_mark, item], [], [],...]
+        mark = []           # list of marks ( .=ok, ?=fail, ^=yourself, -=skip)
+        last_msg = None
+        last_date = now
+        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s/%s минут)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO', RESTORE_FLAG] )
+        for id in reversed(sorted(to_restore)):
+            if idx_block%BLOCK_SIZE==0:
+                finalizeRestoreBlock()
+                mark = []
+                queue = []
+                last_msg = None
+            idx_block+=1
+            if id in msgs:
+                last_msg = m = msgs[id]
+                if m[u'date']:
+                    last_date = m[u'date']
+                # If message is out of requested period, break the cycle
+                ##DBG.trace("%s/%s/%s>%s", [m[u'date'], RESTORE_FLAG,(now - m[u'date']),RESTORE_FLAG*60])
+                if m[u'date'] and RESTORE_FLAG>0 and (now - m[u'date'])>RESTORE_FLAG*60:
+                    finalizeRestoreBlock()
+                    mark = []
                     say( "Восстановление завершено - остаток записей имеет возраст больше %d минут" % RESTORE_FLAG )
                     break
-                ##if ( now - d ) > 24*3600:
-                ##    say( "Восстановление завершено - остаток записей имеет возраст более одного дня и не может быть восстановлен" )
-                ##    break
+                # ignore messages to yourself
+                if m[u'user_id']==me:
+                    mark.append('^')
+                    continue
+                # If date<=0 then message was removed too long time ago - ignore such
+                # If not deleted then messages exists - ignore this
+                if m[u'date']<=0 or not m.get(u'deleted',0):
+                    mark.append('-')
+                    continue
 
-        restorePostBlockJob( id, restoredlst, restoredusers )
+            # this message should be restored
+            queue.append([len(mark),m])
+            mark.append('?')
+        finalizeRestoreBlock()
+
 
         restoredusers = map( lambda v: make_profiletext(v), restoredusers )
         say( "Восстановлены сообщения для: %s", ', '.join(restoredusers) )
@@ -2455,7 +2496,7 @@ def executeDELETE():
 
 def executeMESSAGE():
     global MAIN_PROFILE, load_queue
-    global stop_id, lastdel_id, last_times
+    global stop_id, lastdel_id, last_times, msg_util_val
     global list_to_del, messages, start_video_idx, IF_DELETE
 
     #Load current:
