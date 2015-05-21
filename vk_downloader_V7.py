@@ -48,7 +48,7 @@ def Initialize():
         pass
 
 
-    if not CONFIG['USER_LOGIN'].startswith('+') and CONFIG['USER_LOGIN'].find('@')<0:
+    if CONFIG['USER_LOGIN'] and not CONFIG['USER_LOGIN'].startswith('+') and CONFIG['USER_LOGIN'].find('@')<0:
         raise FatalError( unicformat("Неверный логин - %s",[CONFIG['USER_LOGIN']]) )
 
 
@@ -1091,9 +1091,9 @@ def FindRealLast():
             try: last = max([last, int(values[0]), int(values[1])])   # + stop_id, lastdel_id
             except: pass
 
-    msgs = LoadBlock( last+1, direction=1, NUM_OF_BLOCKS=10)
+    msgs = LoadBlock( range(last+1, last+1001) )
     msgs1 = filter(lambda v: v.get(u'date')>0, msgs)
-    DBG.trace("FindRealLast(): last_active=%s, last_from_cfg=%s, loaded_non_empty=%s",[last_active,last,len(msgs1)])
+    DBG.trace("FindRealLast(): last_active=%s, last_from_cfg=%s, loaded_non_empty=%s/%s",[last_active,last,len(msgs1), len(msgs)])
     if not msgs1:
         last = last_active
         msgs=[]
@@ -1104,36 +1104,75 @@ def FindRealLast():
     return last_active, last, msgs
 
 
-# Load NUM_OF_BLOCKS*100 messages before(direction<0) or after(direction>0) of "start"
-def LoadBlock(start, direction, NUM_OF_BLOCKS):
-    BLOCK_SIZE = 100        # MAX SIZE IN FOR getById is 100 ids
-    #NUM_OF_BLOCKS = 10      # NOT MORE THAN 25 (TO KEEP INSIDE OF ONE BLOCK)
+# Batch load messages by ids (if batch size <2500 then this is one request)
+def LoadBlock( to_load ):
+    to_load = filter( lambda i: i>0, to_load )
+    if not to_load:
+        return []
+
     batcher = vk_utils.BatchExecutor( vk_api )
-    ids_ar = []
-    for idx in range(0,NUM_OF_BLOCKS):
-        minid = start if direction>0 else start-BLOCK_SIZE
-        if minid<1: minid = 1
-        maxid = start+BLOCK_SIZE if direction>0 else start
-        if minid<=maxid:
-            ids_ar.append( ','.join( map(str, range( minid, maxid ) ) ) )
-        start += BLOCK_SIZE if direction>0 else (-BLOCK_SIZE)
-
-    msgs = []
-    if not ids_ar:
-        return msgs
-
-    for ids in ids_ar:
-
+    BLOCK_SIZE = 100        # MAX SIZE IN FOR getById is 100 ids
+    while to_load:
+        ids = ','.join( map(str, to_load[:BLOCK_SIZE] ) )
+        to_load = to_load[BLOCK_SIZE:]
         batcher.messages.getById(message_ids=ids, preview_length=1)
     ##DBG.trace('execute %s-%s', [msg_id,msg_id1])
     _,res= batcher.execute()
+    msgs1=[]
     for v in res.values():
-        msgs += v[0].get(u'items',[])
-    return msgs
+        msgs1 += v[0].get(u'items',[])
+    return msgs1
+
+#TODO: userCond - lambda to check should this be restored(?) or maybe userId= None(everything except me)|id
+def RestoreCycle( to_restore, finalize_callback, restoreDepthMinutes=-1, excludeMe=True, BLOCK_SIZE = 50, verbose = True):
+        idx_block = 0
+        now = time.time()
+        queue = []          # queue to restore [ [idx_in_mark, item], [], [],...]
+        mark = []           # list of marks ( .=ok, ?=fail, ^=yourself, -=skip)
+        last_msg = None
+        last_date = now
+        if verbose:
+            say( "\nВосстанавливаем сообщения (%d записей/msgid=%s/%s минут)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO', restoreDepthMinutes] )
+        for id in reversed(sorted(to_restore)):
+            if idx_block%BLOCK_SIZE==0:
+                finalize_callback( mark, queue, last_msg, last_date, False)
+                last_msg = None
+            idx_block+=1
+            if id in msgs:
+                last_msg = m = msgs[id]
+                if m[u'date']:
+                    last_date = m[u'date']
+                # If message is out of requested period, break the cycle
+                ##DBG.trace("%s/%s/%s>%s", [m[u'date'], restoreDepthMinutes,(now - m[u'date']),restoreDepthMinutes*60])
+                if m[u'date'] and restoreDepthMinutes>0 and (now - m[u'date'])>restoreDepthMinutes*60:
+                    finalize_callback( mark, queue, last_msg, last_date, False)
+                    if verbose:
+                        say( "Восстановление завершено - остаток записей имеет возраст больше %d минут" % restoreDepthMinutes )
+                    break
+                # ignore messages to yourself ( if excludeMe==True)
+                #           or to other ( if excludeMe=False)
+                if bool(m[u'user_id']==me) == bool(excludeMe):
+                    mark.append('^')
+                    continue
+                # If date<=0 then message was removed too long time ago - ignore such
+                if m[u'date']<=0 :
+                    mark.append(' ')
+                    continue
+                # If not deleted then messages exists - ignore this
+                if m[u'date']<=0 or not m.get(u'deleted',0):
+                    mark.append('-')
+                    continue
+
+            # this message should be restored
+            queue.append([len(mark),m])
+            mark.append('?')
+        finalize_callback( mark, queue, last_msg, last_date, True)
+
 
 
 def executeRESTORE( WHAT, RESTORE_FLAG ):
     global me, load_queue
+    global msgs
 
     if WHAT!='message':
         raise FatalError( "Only 'restore:message' is implemented" )
@@ -1174,30 +1213,19 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
             ( last_active, last, msgs ) = FindRealLast()
             to_restore += range( last+min_id, last )        # restore down "min_id" messages (negative value) from last real message
 
-
-            ##{k: v for k, v in points.iteritems() if v[0] < 5 and v[1] < 5}
+        ##{k: v for k, v in points.iteritems() if v[0] < 5 and v[1] < 5}    # filter dict example
         to_restore = set( filter(lambda v: v>0, to_restore) )
 
         # Batch load of all absent messages
         to_load = sorted( to_restore - set(msgs.keys()) )
-        batcher = vk_utils.BatchExecutor( vk_api )
-        if to_load:
-            BLOCK_SIZE = 100        # MAX SIZE IN FOR getById is 100 ids
-            while to_load:
-                ids = ','.join( map(str, to_load[:BLOCK_SIZE] ) )
-                to_load = to_load[BLOCK_SIZE:]
-                batcher.messages.getById(message_ids=ids, preview_length=1)
-            ##DBG.trace('execute %s-%s', [msg_id,msg_id1])
-            _,res= batcher.execute()
-            msgs1=[]
-            for v in res.values():
-                msgs1 += v[0].get(u'items',[])
-            msgs1 = dict( map(lambda v: [v[u'id'],v],msgs1) )
-            msgs.update(msgs1)
+        msgs1 = LoadBlock( to_load )
+        msgs1 = dict( map(lambda v: [v[u'id'],v],msgs1) )
+        msgs.update(msgs1)
 
-        def finalizeRestoreBlock():
+        def finalizeRestoreBlock( mark, queue, last_msg, last_date, isTail ):
             DBG.trace("finalizeRestoreBlock() queue:%s", [queue])
             if not mark:
+                del queue[:]
                 return
             if queue:
                 r = {}
@@ -1213,7 +1241,7 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                     else:
                         mark[idx] = '.'
                         restoredlst.append(int(r[idx][u'id']))
-                        restoredusers.append( int(r[idx][u'user_id']) )
+                        restoredusers.add( int(r[idx][u'user_id']) )
                     ##DBG.trace("DBG:%s/%s/%s", [idx, r[idx][u'id'], res[1]])
             sout = ''.join(mark)
             ##DBG.info( "%s",  [sout] )
@@ -1225,54 +1253,17 @@ def executeRESTORE( WHAT, RESTORE_FLAG ):
                                            time.strftime("%d.%m.%y %H:%M", time.localtime(last_date)) )
                 say( "%s%s", [sout,suff] )
                 ##DBG.info(suff)
+            del queue[:]
+            del mark[:]
 
 
         #Scan of messages and try to restore
-        idx_block = 0
-        BLOCK_SIZE = 50
         restoredlst = []
         restoredusers = set()
-        now = time.time()
-        queue = []          # queue to restore [ [idx_in_mark, item], [], [],...]
-        mark = []           # list of marks ( .=ok, ?=fail, ^=yourself, -=skip)
-        last_msg = None
-        last_date = now
-        say( "\nВосстанавливаем сообщения (%d записей/msgid=%s/%s минут)", [len(to_restore),max(to_restore) if len(to_restore) else 'NO', RESTORE_FLAG] )
-        for id in reversed(sorted(to_restore)):
-            if idx_block%BLOCK_SIZE==0:
-                finalizeRestoreBlock()
-                mark = []
-                queue = []
-                last_msg = None
-            idx_block+=1
-            if id in msgs:
-                last_msg = m = msgs[id]
-                if m[u'date']:
-                    last_date = m[u'date']
-                # If message is out of requested period, break the cycle
-                ##DBG.trace("%s/%s/%s>%s", [m[u'date'], RESTORE_FLAG,(now - m[u'date']),RESTORE_FLAG*60])
-                if m[u'date'] and RESTORE_FLAG>0 and (now - m[u'date'])>RESTORE_FLAG*60:
-                    finalizeRestoreBlock()
-                    mark = []
-                    say( "Восстановление завершено - остаток записей имеет возраст больше %d минут" % RESTORE_FLAG )
-                    break
-                # ignore messages to yourself
-                if m[u'user_id']==me:
-                    mark.append('^')
-                    continue
-                # If date<=0 then message was removed too long time ago - ignore such
-                # If not deleted then messages exists - ignore this
-                if m[u'date']<=0 or not m.get(u'deleted',0):
-                    mark.append('-')
-                    continue
-
-            # this message should be restored
-            queue.append([len(mark),m])
-            mark.append('?')
-        finalizeRestoreBlock()
-
-
+        batcher = vk_utils.BatchExecutor( vk_api )
+        RestoreCycle( to_restore, finalizeRestoreBlock, restoreDepthMinutes=RESTORE_FLAG, excludeMe=True, verbose = True)
         restoredusers = map( lambda v: make_profiletext(v), restoredusers )
+        say( "Восстановлено %s сообщений", len(restoredlst) )
         say( "Восстановлены сообщения для: %s", ', '.join(restoredusers) )
 
 
