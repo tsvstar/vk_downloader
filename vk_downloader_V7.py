@@ -2187,6 +2187,7 @@ def executeWALL():
                                 # a) values were decreased - add last entry to backup list
                                 if (k in MSG2BACKUP):
                                     f.write('<!--\tBACKUP\t%s\\tRESTORED-->\n' % ('\t'.join(msg_cached[:-1])) )
+                                    body = replace("<tr><td width=1% nowrap>", "<tr><td width=1% bgcolor=#80FF80 nowrap>")
                                     f.write( body )
                                 # b) values were increased - keep previous backup list
                                 else:
