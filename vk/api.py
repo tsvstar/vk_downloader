@@ -61,6 +61,18 @@ def json_iter_parse(response_text):
         yield obj
 
 
+
+_safe_vkmethods = [ '.get',
+                    'messages.getHistory',
+                    'photos.getAlbums',
+                    'messages.getDialogs',
+                    'photos.getAll',
+                    'messages.getById',
+                    'likes.getList',
+                    'wall.getComments',
+                 ]
+
+
 class APISession(object):
     def __init__(self, app_id=None, user_login=None, user_password=None, access_token=None, user_email=None,
                  scope='offline', timeout=1, api_version='5.20'):
@@ -94,6 +106,7 @@ class APISession(object):
         self.api_version = api_version
         self._default_timeout = timeout
 
+        self.repeat_on_timeout = 1              # how many times repeat on network timeout safe commands before raise exception
         self.pause = 0.35                       # pause between requests
         self.pause_after_error = self.pause     # pause after 'too many request error'
         self.show_blink = False                 # should be displayed each api request
@@ -270,19 +283,36 @@ class APISession(object):
             raise VkAPIMethodError(errors[0])
 
     def method_request(self, method_name, timeout=None, **method_kwargs):
-        if self.access_token:
-            params = {
-                'access_token': self.access_token,
-                'timestamp': int(time.time()),
-                'v': self.api_version,
-            }
-            params.update(method_kwargs)
-            url = 'https://api.vk.com/method/' + method_name
+        retries = range(0,self.repeat_on_timeout)
+        while True:
+            try:
+                if self.access_token:
+                    params = {
+                        'access_token': self.access_token,
+                        'timestamp': int(time.time()),
+                        'v': self.api_version,
+                    }
+                    params.update(method_kwargs)
+                    url = 'https://api.vk.com/method/' + method_name
 
-        #return self.session.post(url, params, timeout=timeout or self._default_timeout)
-        rv = self.session.post(url, params, timeout=timeout or self._default_timeout)
-        ##print ">>%s<< (%s)" % (url, str(params))
-        ##print "======>>\n%s\n<<======" % rv.text.encode('cp866','backslashreplace')
+                ##print ">>%s<< (%s)" % (url, str(params))
+                rv = self.session.post(url, params, timeout=timeout or self._default_timeout)
+            except requests.Timeout as e:
+                ##print "Timeout"
+                isSafe = ( method_name in _safe_vkmethods )
+                for s in _safe_vkmethods:
+                    if s.startswith('.') and method_name.endswith(s):
+                        isSafe = True
+                if isSafe:
+                    if retries:
+                        retries.pop()
+                        if self.logRequest:
+                            SayToLog( ">>REPEAT BECAUSE OF TIMEOUT (%s try) -  %s(%s)" % ((self.repeat_on_timeout-len(retries)), method_name, str(method_kwargs) ) )
+                        continue
+                SayToLog( ">>FAIL BECAUSE OF TIMEOUT (%s tries done) -- %s(%s) " % ((self.repeat_on_timeout+1), method_name, str(method_kwargs) ) )
+                raise
+            break
+            ##print "======>>\n%s\n<<======" % rv.text.encode('cp866','backslashreplace')
         return rv
 
     def captcha_is_needed(self, error_data, method_name, **method_kwargs):

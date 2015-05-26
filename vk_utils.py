@@ -95,7 +95,7 @@ def VKLoginByPassword( USER_LOGIN, fldPwd = None, fldPwdEncoded='USER_PASSWORD_E
          USER_PASSWORD = util.getinput( util.unicformat("Введите пароль для '%s': ", USER_LOGIN) )
          PWD_ENC = util.str_crypt64( USER_PASSWORD, USER_LOGIN )
       try:
-         vk_api = vk.API( config.CONFIG['APP_ID'], USER_LOGIN, USER_PASSWORD, scope='offline,messages,groups,photos,audio,video,wall,friends', timeout=5)
+         vk_api = vk.API( config.CONFIG['APP_ID'], USER_LOGIN, USER_PASSWORD, scope='offline,messages,groups,photos,audio,video,wall,status,friends', timeout=5)
          if not interactive:
                 break
          token = USER_LOGIN + '|'+ USER_PASSWORD

@@ -26,6 +26,8 @@ TODO:
 	--SAFE_RESTORE=XX[m|h|d|y]:
 		batch get history, scan for non me2me deleted, append to temp file, restore them, ....action, finally: load the file and delete
 	--DOWNLOAD_DEPTH=XX[m|h|d|y]
+	Batcher repeat execute on timeout always(??) or if only safe methods
+	 {user_safe_methods -- to mark writeable methods as safe?? maybe remember/restore; '*' is allowed}
 	for {MACHINE} say ddmmyy only if it is different day of message or on the border (>22:00 or <02:00). and give ddmm
 	for watcher - remember prev message. if now *=0, -=to same dir then send nothing
 	correct say in {MACHINE} msg (now it say first msg of sequence not last one) --- NO IT SAY FROM WHICH IT STORE, FROM WHICH IT DEL. MAYBE GIVE RANGE?

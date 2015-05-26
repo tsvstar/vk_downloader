@@ -73,6 +73,7 @@ def main():
 
         myvk.PrepareLoadQueue( WHAT, RESTORE_FLAG, MAIN_PROFILE )
         myvk.PreprocessLoadQueue()
+        ##myvk.vk_api._default_timeout=0.15		#@tsv test
         if RESTORE_FLAG:
             myvk.executeRESTORE( WHAT, RESTORE_FLAG )
         elif WHAT=='video':
