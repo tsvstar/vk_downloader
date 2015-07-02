@@ -22,6 +22,10 @@ TOCHECK:
 	HOW DOWNLOAD private photos(??not a problem i think)
 
 TODO:
+	FAIL TO LOAD https://vk.com/video135963679_170998138
+			https://vk.com/video179408366_171035421
+	remember MP3 by its code to avoid download on reordering? but it could change(?)	
+
 	restore "user" --RESTORE_DEPTH=XX[m|h|d|y]
 	--SAFE_RESTORE=XX[m|h|d|y]:
 		batch get history, scan for non me2me deleted, append to temp file, restore them, ....action, finally: load the file and delete

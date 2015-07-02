@@ -32,6 +32,12 @@ TOO_MANY_REQUESTS = 6
             logging
 """
 
+RE_LOGIN_HASH = re.compile(r'name="lg_h" value="([a-z0-9]+)"')
+def search_re(reg, string):
+    s = reg.search(string)
+    if s:
+        return s.groups()[0]
+
 """ ========== DEBUG =============== """
 
 import os, codecs, time,traceback
@@ -143,12 +149,15 @@ class APISession(object):
 
         session = requests.Session()
 
+        response = session.get('https://vk.com/')
+
         # Login
         login_data = {
             'act': 'login',
             'utf8': '1',
             'email': self.user_login,
             'pass': self.user_password,
+            'lg_h': search_re(RE_LOGIN_HASH, response.text)	##
         }
 
         response = session.post('https://login.vk.com', login_data)
@@ -159,8 +168,10 @@ class APISession(object):
             raise VkAuthorizationError('Authorization error (captcha)')
         elif 'security_check' in response.url:
             raise VkAuthorizationError('Authorization error (phone number is needed)')
-        else:
+        elif 'm=1' in response.url:
             raise VkAuthorizationError('Authorization error (bad password)')
+        else:
+            raise VkAuthorizationError('Unknown authorization error')
 
         # OAuth2
         oauth_data = {
