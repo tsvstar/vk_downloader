@@ -12,6 +12,10 @@ from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml
 from vk_utils import profiles, get_profile, make_profilehtml, make_profiletext
 
 DBGprint = util.dbg_print        # alias
+try:
+    O_BINARY = os.O_BINARY
+except:
+    O_BINARY = 0
 
 """
 ##########################################
@@ -31,7 +35,10 @@ def Initialize():
 
     # Parse main ARGV parameters
     sysargv = util.getSysArgv()
-    ARGV = util.getWinSysArgv()
+    if os.name=='nt':
+        ARGV = util.getWinSysArgv()
+    else:
+        ARGV = list( sysargv )
 
     WHAT = sysargv[1].lower() if len(sysargv)>1 else ''
     if not WHAT:
@@ -308,7 +315,7 @@ def dload_attach( dirname, fname, url, mark = None, needPrefix = True, type = No
         pass
      else:
         try:
-          tmpfp = os.open( fullfname, os.O_RDWR|os.O_TRUNC|os.O_CREAT|os.O_BINARY )
+          tmpfp = os.open( fullfname, os.O_RDWR|os.O_TRUNC|os.O_CREAT|O_BINARY, 0644 )
         except Exception as e:
           raise FatalError( unicformat( "Ошибка при записи файла %s\n%s", [fullfname,e] ) )
         os.write( tmpfp, content )
@@ -1028,10 +1035,14 @@ def PreprocessLoadQueue():
                name866 =  str_encode(name,'cp866').decode('cp1251','xmlcharrefreplace').lower()
             except:
                name866 =''
+            try:
+               nameutf8 =  name.decode('utf-8').lower()
+            except:
+               nameutf8 =''
             foundname = None
             for i in friends:
                to_find = [ i[u'last_name'].lower(), ("%s %s" %(i[u'first_name'],i[u'last_name'])).lower() ]
-               if ( name866 in to_find ) or ( name.lower() in to_find ):
+               if ( name866 in to_find ) or ( name.lower() in to_find ) or (nameutf8 in to_find):
                     if found is None:
                         found=int(i[u'id'])
                         foundname = name866 if ( name866 in to_find ) else str_cp866( name )
@@ -2604,7 +2615,7 @@ def executeMESSAGE():
             # 4. WRITE TO TGT FILE --> only text is supported now
             TGT_FILE = str_encode( u'%s/%s_%s.txt' % ( BASEDIR, str_decode(MAIN_PROFILE), str_decode(load[2]) ) )
             firstTimeFlag = not os.path.exists(TGT_FILE)
-            tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_BINARY )
+            tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|O_BINARY, 0644 )
             if not tmpfp:
                 raise FatalError( unicformat("Ошибка открытия файла сообщений %s", TGT_FILE ) )
             if firstTimeFlag:

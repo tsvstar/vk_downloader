@@ -55,15 +55,16 @@ def make_join( sep, lst ):
 
 ##baseencode = sys.getfilesystemencoding()      # 'mbcs' - doesn't decode
 
+baseencode = 'cp1251'       # encoding of vk answer
 if os.name=='nt':
     # WINDOWS
-    baseencode = 'cp1251'       # filesystem encoding
+    fsencode = 'cp1251'         # filesystem encoding
     scriptencoding = 'utf-8'    # encoding of script files
     outputencoding = 'cp866'    # encoding of output console
     inputencoding = 'cp866'     # encoding of input from console
 else:
     # UNIX
-    baseencode = 'utf-8'        # filesystem encoding
+    fsencode = 'utf-8'        # filesystem encoding
     scriptencoding = 'utf-8'    # encoding of script files
     outputencoding = 'utf-8'    # encoding of output console
     inputencoding = 'utf-8'     # encoding of input from console
