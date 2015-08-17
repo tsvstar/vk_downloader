@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # coding=utf8
 
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]
@@ -8,7 +9,7 @@ import vk, pytube
 import config
 import vk_utils
 import tsv_utils as util
-from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError, DBG
+from tsv_utils import str_encode, str_decode, str_cp866, fname_prepare, makehtml, say, unicformat, OkExit, FatalError, DBG, inputencoding
 from vk_utils import profiles, get_profile, make_profilehtml, make_profiletext
 
 DBGprint = util.dbg_print        # alias
@@ -153,8 +154,12 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56836;": ":-D ",
                 "&#55357;&#56832;": ":-D ",
                 "&#55357;&#56843;": ":-p ",
+		"&#55357;&#56863;": ":( ",
+		"&#55357;&#56904;": "*DON'T SEE* ",
                 "&#55357;&#56850;": ":( ",
                 "&#55357;&#56861;": "%-p ",
+		"&#9889;": "*LIGHTING* ",
+		"&#55357;&#56441;": "*DEVIL*",
 
                 "&#55357;&#56880;": ":``( ",
                 "&#55357;&#56881;": "*OH* ",
@@ -168,6 +173,11 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56896;": ">8-O ",
                 "&#55357;&#56847;": "*SHY* ",
                 "&#9786;": "8) ",
+		"&#55357;&#56488;": "*WIND* ",
+		"&#10052;": "*ICE*",
+		"&#55356;&#57226;": "*HOLIDAY*",
+		"&#55357;&#56984;": "*BLUE CAR*",
+
 
                 #	&#55357;&#56391;
                 #	&#55357;&#56847;
@@ -186,6 +196,7 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56865;": "*ANGRY* ",
                 "&#55357;&#56869;": ":`( ",
                 "&#55357;&#56850;": "*SAD* ",
+		"&#55357;&#56862;": "*SAD* ",
                 "&#55357;&#56878;": ":-O ",
                 "&#55357;&#56399;": "*APPLAUSE* ",
                 "&#55357;&#56834;": ":``)",
@@ -779,7 +790,7 @@ def executeAsk():
    while url!='':
        say('Для того чтобы закончить ввод - на очередном вопросе просто нажмите ENTER ничего не вводя\n')
        while (url!=''):
-            url = util.getinput("Введите что скачивать(фамилию, URL):" ).strip().decode('cp866')
+            url = util.getinput("Введите что скачивать(фамилию, URL):" ).strip().decode(inputencoding)
             if url:
                  load_queue.append( [ 'value' if RESTORE_FLAG else 'user', url, None ] )
                  MAIN_PROFILE = '~'
@@ -2417,7 +2428,7 @@ def executeDELETE():
             say("Ввведено: дата %s", util.str_fulltime(t) )
             return t
 
-        value = str_decode( value.strip(), 'cp866' )
+        value = str_decode( value.strip(), inputencoding )
         if value:
             say("Введено: в сообщении должен быть текст \"%s\"", value)
         else:

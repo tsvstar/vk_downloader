@@ -1,7 +1,21 @@
 # coding=utf8
 
 import os, sys, time, base64,re,codecs, types
-from msvcrt import getch
+try:
+    from msvcrt import getch
+except ImportError:
+    import sys, tty, termios
+    def getch():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+
 from ctypes import *
 
 import inspect
@@ -39,9 +53,21 @@ def make_join( sep, lst ):
 #		STR FUNC
 ################################################################
 
-baseencode = 'cp1251'
 ##baseencode = sys.getfilesystemencoding()      # 'mbcs' - doesn't decode
-scriptencoding = 'utf-8'
+
+if os.name=='nt':
+    # WINDOWS
+    baseencode = 'cp1251'       # filesystem encoding
+    scriptencoding = 'utf-8'    # encoding of script files
+    outputencoding = 'cp866'    # encoding of output console
+    inputencoding = 'cp866'     # encoding of input from console
+else:
+    # UNIX
+    baseencode = 'utf-8'        # filesystem encoding
+    scriptencoding = 'utf-8'    # encoding of script files
+    outputencoding = 'utf-8'    # encoding of output console
+    inputencoding = 'utf-8'     # encoding of input from console
+
 
 # REPLACE DANGEROUS SYMBOLS
 def fname_prepare(fname):
@@ -70,9 +96,9 @@ def str_encode( s, enc=None ):
 def str_transcode( s, src, tgt ):
     return str_encode( str_decode( s, src ), tgt )
 
-# TRANSCODE src(baseencode) -> cp866
+# TRANSCODE src(baseencode) -> cp866(output encoding)
 def str_cp866( s, src = None ):
-    return str_encode( str_decode( s, src ), 'cp866' )
+    return str_encode( str_decode( s, src ), outputencoding )
 
 
 def str_encode_all( lst, enc = None ):
@@ -137,20 +163,20 @@ def unicformat( s, arg = None ):
         raise
 
 def _say_console( s = '', arg = None ):
-    print unicformat( s, arg ).encode('cp866','xmlcharrefreplace')
+    print unicformat( s, arg ).encode(outputencoding,'xmlcharrefreplace')
 
 say_buffer = ''
 def _say_string ( s = '', arg = None ):
-    say_buffer += unicformat( s, arg ).encode('cp866','xmlcharrefreplace') + "\n"
+    say_buffer += unicformat( s, arg ).encode(outputencoding,'xmlcharrefreplace') + "\n"
 
 say = _say_console
 
 def say_cp866( s ):
-    print str_encode( s, 'cp866' )
+    print str_encode( s, outputencoding )
 
 def getinput( s ):
     if s:
-        s = str_transcode(s,scriptencoding,'cp866')
+        s = str_transcode( s, scriptencoding, inputencoding )
         print_mark(s)
     if CONFIG.get('MACHINE',False):
         raise Exception('getinput() call for non-interactive mode')
@@ -176,7 +202,7 @@ def confirm( prompt, choiceList = None ):
             raise Exception('confirm() call for non-interactive mode')
         val = ''
         while val.lower() not in choiceList:
-          val = str_decode(getch(),'cp866')
+          val = str_decode( getch(), inputencoding )
           if ord(val)==3:
              raise KeyboardInterrupt
           if ord(val)<32:
