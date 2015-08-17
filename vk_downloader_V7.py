@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # coding=utf8
 
 # script.py LOGIN PASSWORD [uid=x,uid=y,chat=z]

@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # coding=utf8
 
 # UNIVERSAL VK DOWNLOADER - message, wall, photo, mp3; +restore messages
@@ -25,7 +26,10 @@ def main():
 
         # initialize argv
         sysargv = util.getSysArgv()
-        ARGV = util.getWinSysArgv()
+        if os.name=='nt':
+            ARGV = util.getWinSysArgv()
+        else:
+            ARGV = list( sysargv )
 
         util.DBG.important( u">>> RUN VK_DOWNLOADER[%x]. Cmd: %s", [os.getpid(),' '.join(ARGV) ])
 
