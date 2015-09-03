@@ -160,12 +160,12 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56836;": ":-D ",
                 "&#55357;&#56832;": ":-D ",
                 "&#55357;&#56843;": ":-p ",
-		"&#55357;&#56863;": ":( ",
-		"&#55357;&#56904;": "*DON'T SEE* ",
+                "&#55357;&#56863;": ":( ",
+                "&#55357;&#56904;": "*DON'T SEE* ",
                 "&#55357;&#56850;": ":( ",
                 "&#55357;&#56861;": "%-p ",
-		"&#9889;": "*LIGHTING* ",
-		"&#55357;&#56441;": "*DEVIL*",
+                "&#9889;": "*LIGHTING* ",
+                "&#55357;&#56441;": "*DEVIL*",
 
                 "&#55357;&#56880;": ":``( ",
                 "&#55357;&#56881;": "*OH* ",
@@ -179,10 +179,10 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56896;": ">8-O ",
                 "&#55357;&#56847;": "*SHY* ",
                 "&#9786;": "8) ",
-		"&#55357;&#56488;": "*WIND* ",
-		"&#10052;": "*ICE*",
-		"&#55356;&#57226;": "*HOLIDAY*",
-		"&#55357;&#56984;": "*BLUE CAR*",
+                "&#55357;&#56488;": "*WIND* ",
+                "&#10052;": "*ICE*",
+                "&#55356;&#57226;": "*HOLIDAY*",
+                "&#55357;&#56984;": "*BLUE CAR*",
 
 
                 #	&#55357;&#56391;
@@ -202,7 +202,7 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#55357;&#56865;": "*ANGRY* ",
                 "&#55357;&#56869;": ":`( ",
                 "&#55357;&#56850;": "*SAD* ",
-		"&#55357;&#56862;": "*SAD* ",
+                "&#55357;&#56862;": "*SAD* ",
                 "&#55357;&#56878;": ":-O ",
                 "&#55357;&#56399;": "*APPLAUSE* ",
                 "&#55357;&#56834;": ":``)",
@@ -332,7 +332,7 @@ def parse_attachment( attach, pre, html = False, got_from = '' ):
         tmp,fname=os.path.split(fname)
         tmp,dname=os.path.split(tmp)
         ##return "file://./%s/%s" % ( urllib.quote_plus(dname), urllib.quote_plus(fname) )
-        return str_encode( "./%s/%s" % ( dname, fname ) )
+        return str_encode( "./%s/%s" % ( dname, fname ), util.fsencode )
 
     def make_attachbody( prefix, title, attach_item, url, dloaded_fname = None ):
         url = str_encode(url)
@@ -731,7 +731,7 @@ def get_cached_albums_list( user_id ):
 def init_dirs( objtype, objid, objname ):
     global MAIN_PROFILE, IMGDIR, IMGDIRBASE, MP3DIR, MP3DIRBASE, DOCDIR
 
-    MAIN_PROFILE = str_encode( '%s_%s' % ( objtype, objid ) )
+    MAIN_PROFILE = str_encode( '%s_%s' % ( objtype, objid ), util.fsencode )
     IMGDIR = unicformat(u"%s-%s-%s", ( IMGDIRBASE, MAIN_PROFILE, fname_prepare(objname) ) )
     MP3DIR = unicformat(u"%s-%s-%s", ( MP3DIRBASE, MAIN_PROFILE, fname_prepare(objname) ) )
     DOCDIR = None
@@ -1055,7 +1055,7 @@ def PreprocessLoadQueue():
                # post processing
                if found is None:
                     try:
-                       say( "НЕ ОБНАРУЖЕНО: %s (%s) - ПРОПУСКАЕМ ЭТО", ( name, name866 ) )  # @tsv -- transcode??
+                       say( "НЕ ОБНАРУЖЕНО: %s (%s) - ПРОПУСКАЕМ ЭТО", ( name, name866 if os.name=='nt' else nameutf8) )  # @tsv -- transcode??
                     except:
                        say( "НЕ ОБНАРУЖЕНО: ... - ПРОПУСКАЕМ ЭТО" )
                     load_queue[idx][0] = 'skip'
@@ -2613,7 +2613,7 @@ def executeMESSAGE():
                 continue
 
             # 4. WRITE TO TGT FILE --> only text is supported now
-            TGT_FILE = str_encode( u'%s/%s_%s.txt' % ( BASEDIR, str_decode(MAIN_PROFILE), str_decode(load[2]) ) )
+            TGT_FILE = str_encode( u'%s/%s_%s.txt' % ( BASEDIR, str_decode(MAIN_PROFILE), str_decode(load[2]) ), util.fsencode  )
             firstTimeFlag = not os.path.exists(TGT_FILE)
             tmpfp = os.open( TGT_FILE, os.O_RDWR|os.O_APPEND|os.O_CREAT|O_BINARY, 0644 )
             if not tmpfp:
