@@ -8,8 +8,26 @@ import traceback, imp
 #       postponed send (up to N changes since first change are collected) - minimize num of notification
 #       option: -XX means exclude notifier for this item ('-vk' - exclude vk)
 #       COMMAND
-#       runscript
-#       config.PRECISE=True/False (how much data keep in lists)
+#       exclude view/comments/like for not owned by user video (for group not owned by any user?)
+#       minimum offline period
+"""
+vk_help
+vk_list                     --> task - status(active,disabled), notify(silent)
+vk_list_full                --> task - arg1, arg2, ..
+vk_join/vk_leave groupid    - join/leave group
+vk_notify +/- task,...      - turn on/off notification for task(s)
+vk_enable +/- task,...      - turn on/off task(s)
+vk_store  [task]            - run message task with store (regardless of its rate right now) and notify about state
+vk_clean [task]             - run message task with enforced message delete
+vk_autoclean on/off [task]  - change mode for message task
+vk_default task             - set default message task
+vk_restore                  - restore messages
+"""
+
+# DONE:
+# "Run" handler
+# log: notify, vkerror, traceback, online status
+# config: PRECISE, ENFORCE
 
 import vk_utils
 import tsv_utils as util
@@ -21,6 +39,18 @@ from tsv_utils import DBG, str_decode
 
 import config
 def LoadConfig():
+    more_options = { 'MACHINE':     True,           # Replace this with False only to initialize passwords
+
+                     'ENFORCE':     False,          # If TRUE, then ignore lock file and rate
+                     'PRECISE':     True,           # If TRUE, then use big packets to better change detection; If FALSE then sacrifice detection accuracy for trafic/speed
+
+                     'PYTHON_EXE':      sys.executable,
+                     'VK_DOWNLOADER':   os.path.join(os.path.split(__file__)[0],'vk_downloader.py'),
+                   }
+
+    config.dflt_config.update(more_options)
+    config.CONFIG = config.dflt_config.copy()
+
     config.CFGFILE = './vk_watcher.cfg'
     cfg_loaded  = config.load_config( config.CFGFILE )                    # load config
 
@@ -54,6 +84,7 @@ def ReplaceAlias( value ):
 
 """========================================="""
 def RunMainScript( cmd ):
+        util.say( 'RunMainScript(%s)', [cmd] )
         cmd = [ config.CONFIG['PYTHON_EXE'], config.CONFIG['VK_DOWNLOADER'] ] + cmd
         if len(cmd)<5:
                 return '??', 'Too short cmd: %s'%str(cmd)
@@ -115,6 +146,8 @@ glob_options = []       # list of requested extra options (comments,...)
 glob_notify = []        # list of notification target [  [notify_type1,notify_queue1], .. ]     ( [ ['vk', ''] , ['jeapie','!'], .. )
 notifications = {}      # notifications[notify_type][queue][objid] = [ wall_notify, ..]
 glob_sendto_vk = None   # id of target user for notify
+glob_queue = None       # currently processed queue
+glob_precise = True
 
 def get_glob_path():
     global glob_fname, glob_main, DIR_MAIN
@@ -158,6 +191,8 @@ def loadfile( empty = [] ):
 
 # PURPOSE: Save items to "glob_path" file + logs
 def save_file( items, shortLog = False ):
+    global glob_fname, glob_main
+    DBG.trace('save_file() to %s.%s' % (glob_fname,glob_main) )
     def convert_ ( items, dorepr ):
         res = []
         for i in items:
@@ -285,7 +320,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True )
         make_notify( [ u'>%s: %s' % (glob_main.upper(), u';\n'.join(notify) ) ] )
 
 # PURPOSE: add regarding to "glob_notify" notifications from list
-def make_notify( notify ):
+def make_notify( notify, logfile = '.notificatons-main.log' ):
     global glob_notify, notifications
 
     DBG.trace( "make_notify %s", [notify] )
@@ -295,11 +330,15 @@ def make_notify( notify ):
         #for n in notify:
         #    ref.append( n )
 
+    for n_type, n_queue in glob_notify:
+        ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(glob_fname,[])
+        ref += notify
 
 """ ==================================================================== """
 
 def wall_handler( vk_api, vk_id, options ):
-    res = vk_api.wall.get( owner_id=vk_id, count=100, filter='all')
+    precision = 100 if glob_precise else 75
+    res = vk_api.wall.get( owner_id=vk_id, count=precision, filter='all')
     if vk_api.doPrepareOnly:
         return
 
@@ -307,12 +346,12 @@ def wall_handler( vk_api, vk_id, options ):
     for i in res[u'items']:
         items.append( [ i[u'id'], getcount(i,u'comments'), getcount(i,u'likes'), getcount(i,u'reposts'), i.get(u'text','') ] )
     if 'new_only_as_msg' not in options:
-        compare_items( items, 90, ['comments','likes','reposts', 'text'], 'new' in options )
+        compare_items( items, precision-10, ['comments','likes','reposts', 'text'], 'new' in options )
     else:
         # SPECIAL CASE: send text of all new posts on the wall
         was = loadfile( [ [ 0 ] ] )
-        was_dict, was_extra = make_dict( was, 90 )
-        now_dict, now_extra = make_dict( items, 90 )
+        was_dict, was_extra = make_dict( was, precision-10 )
+        now_dict, now_extra = make_dict( items, precision-10 )
         was_set, now_set = set( was_dict.keys() ), set( now_dict.keys() )
         if was[0][0] and items[0][0]:
             # find new
@@ -326,32 +365,36 @@ def wall_handler( vk_api, vk_id, options ):
 
 
 def video_handler( vk_api, vk_id, options ):
-    res = vk_api.video.get( owner_id=vk_id, count=200, extended=1)
+    precision = 200 if glob_precise else 100
+    res = vk_api.video.get( owner_id=vk_id, count=precision, extended=1)
     if vk_api.doPrepareOnly:
         return
 
     items = [ [ res[u'count'] ] ]
     for i in res[u'items']:
         items.append( [ i[u'id'], getcount(i,u'likes'), getcount(i,u'views',False), getcount(i,u'comments',False), i.get(u'title','') ] )
-    compare_items( items, 190, ['likes','views','comments'] )
+    compare_items( items, precision-10, ['likes','views','comments'] )
 
 
 def mp3_handler( vk_api, vk_id, options ):
-    res = vk_api.audio.get( owner_id=vk_id, count=500, extended=1)
+    precision = 500 if glob_precise else 350
+    res = vk_api.audio.get( owner_id=vk_id, count=precision, extended=1)
     if vk_api.doPrepareOnly:
         return
 
     items = [ [ res[u'count'] ] ]
     for i in res[u'items']:
         items.append( [ '%s_%s'%(i[u'owner_id'],i[u'id']), u'%s - %s (%ssec)'% (i[u'artist'],i[u'title'],i['duration']) ] )
-    compare_items( items, 450, [] )
+    compare_items( items, precision-50, [] )
 
 
 def photo_handler( vk_api, vk_id, options ):
-    res = vk_api.photos.getAlbums( owner_id=vk_id, need_system=1 )
+    precision = 600 if glob_precise else 200
+    precision_comm = 100 if glob_precise else 75
+    res = vk_api.photos.getAlbums( owner_id=vk_id, need_system=1, count=precision )
     res_comment = None
     if ('comments' in options) or ('*' in options):
-        res_comment = vk_api.photos.getAllComments( owner_id=vk_id, count=100)
+        res_comment = vk_api.photos.getAllComments( owner_id=vk_id, count=precision_comm)
     if vk_api.doPrepareOnly:
         return
 
@@ -359,7 +402,7 @@ def photo_handler( vk_api, vk_id, options ):
     for i in res[u'items']:
         #items.append( [ i[u'id'], i[u'size'], i.get(u'updated',0), i[u'title'] ] )
         items.append( [ i[u'id'], i[u'size'], i[u'title'] ] )
-    compare_items( items, 1000, ['size'] )
+    compare_items( items, precision-30, ['size'] )
 
     if res_comment is None:
         return
@@ -370,7 +413,7 @@ def photo_handler( vk_api, vk_id, options ):
     items = [ [ res_comment[u'count'] ] ]
     for i in res_comment[u'items']:
         items.append( [ '%s:%s'%(i[u'id'],i[u'pid']), u'%s_%s: %s' % ( vk_id, i[u'pid'], i[u'text'][:100] ) ] )
-    compare_items( items, 90, [] )
+    compare_items( items, precision_comm-10, [] )
 
 
 def message_handler( vk_api, vk_id, options ):
@@ -385,7 +428,7 @@ def message_handler( vk_api, vk_id, options ):
     if msgid > int(was[0][0]):
         save_file( [ msgid ], shortLog=True )
         if int(was[0][0]) and first_item.get(u'from_id',0)==vk_id and not first_item.get(u'read_state',1):
-            make_notify( ["incoming message"] )
+            make_notify( ["incoming message"], '.notificatons-messages.log' )
 
 def status_handler( vk_api, vk_id, options ):
     if vk_id>0:
@@ -436,15 +479,28 @@ def online_handler( vk_api, vk_id, options ):
     items = [ platform if online else '---' ]
 
     was = loadfile() + [['']]
+    DBG.trace( 'online answer for %s is %s' % (vk_id,res) )
     ##DBG.trace( "compare online %s -- %s", [was[0],items[0]])
     if was[0][0]!=items[0]:
         save_file( items, shortLog=True )
         if online and was[0][0]=='---':
             #notify only when come online
-            make_notify( [u' ONLINE(%s)'%platform] )
+            make_notify( [u' ONLINE(%s)'%platform],'.notificatons-online.log' )
 
 
 """ ==================================================================== """
+
+def logger_notifier(  text , enforce ):
+    text = text.strip()
+    if not text:
+		return False
+
+    global DIR_MAIN
+    fpath = os.path.join( DIR_MAIN, glob_queue)
+    with open( fpath, 'ab' ) as f:
+        t = time.strftime("%d.%m.%y %H:%M", time.localtime())
+        f.write( util.str_encode( u'*** %s ***\n%s\n' % ( t, text ), 'utf-8' ) )
+    return True
 
 def vk_notifier( text , enforce ):
     text = text.strip()
@@ -554,6 +610,8 @@ def ExecuteNotification():
                     collected_notify.append( u'%s: %s' % ( objid.upper(), ar_notifies[0] ) )
                 else:
                     collected_notify.append( u'%s:\n%s' % ( objid.upper(), '\n'.join(ar_notifies) ) )
+            global glob_queue
+            glob_queue = queue
             while collected_notify:
                 text = '\n=====\n'.join(collected_notify)
                 DBG.trace("TRY TO COLLECTED NOTIFY: %s", [text] )
@@ -567,7 +625,7 @@ def ExecuteNotification():
 """ ==================================================================== """
 
 def main():
-    global DIR_MAIN
+    global DIR_MAIN, DIR_LOG, DIR_TMP
 
     util.init_console()
     DBG.logfile_name='./LOG_WATCHER/vk_watch'
@@ -578,6 +636,7 @@ def main():
         os.chdir(BASE_DIR)
 
     LoadConfig()
+    config.InitConfigFromARGV( startsfrom = 1 )
     USER_LOGIN = config.CONFIG['USER_LOGIN'].strip()
     if not USER_LOGIN:
         raise util.FatalError('Unknown USER_LOGIN')
@@ -592,8 +651,16 @@ def main():
 
     global LOCKFILE
     LOCKFILE = os.path.join(DIR_TMP,'lockfile.group_watch')
-    AddLockFile( timeout=55 )
+    if not config.CONFIG.get('ENFORCE',0):
+        AddLockFile( timeout=55 )
 
+    # Initialize push services token
+    global bullet
+    bullet = PushBullet( config.CONFIG.get('TOKEN_PUSHBULLET','') )
+
+    globals()['glob_precise'] = config.CONFIG.get('PRECISE',True)
+
+    # Do Login
     import vk.api
     vk.api.LOG_DIR = "./LOG_WATCHER"
     vk.api.LOG_FILE = '%s/vk_api.log' % vk.api.LOG_DIR
@@ -603,10 +670,6 @@ def main():
     vk_api1, me1, USER_PASSWORD1 = vk_utils.VKSignIn( USER_LOGIN, interactive )
     ##vk_api2, me2, USER_PASSWORD2 = vk_utils.VKSignInSecondary( False )
     now = time.time()
-
-    # Initialize push services token
-    global bullet
-    bullet = PushBullet( config.CONFIG.get('TOKEN_PUSHBULLET','') )
 
     # Load watchers
     with open( config.CONFIG.get('WATCHERS_PY','./vk_watchers_list.py'), 'rb') as f:
@@ -632,12 +695,19 @@ def main():
     glob_sendto_vk = me1
     ExecuteNotification()
 
-hash_cache = {}
-def Watch( rate, vk_id, fname, to_watch, to_notify ):
-    global glob_vkapi
-    global skip_cache
 
-    hashfile = os.path.join( DIR_MAIN, '.check_rate.%s.%x.%x' % ( fname, vk_id, hash( repr([to_watch,to_notify]) ) ) )
+hash_cache = {}
+def isAllowByRate( rate, prefix, hash_ ):
+    global hash_cache, glob_vkapi, hashfile
+
+    hashfile = os.path.join( DIR_TMP, '.check_rate.%s.%x' % ( prefix, hash_ ) )
+    if config.CONFIG.get('ENFORCE',0):
+        return True
+
+    # negative rate means 'disable'
+    if rate<0:
+        return False
+
     if hashfile not in hash_cache:
         if os.path.exists( hashfile ):
             hash_cache[hashfile] = time.time() - os.path.getmtime( hashfile )
@@ -645,8 +715,23 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
             hash_cache[hashfile] = None
     pause = hash_cache[hashfile]
     if pause is not None and pause < 60*rate:
+        DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
         if glob_vkapi.doPrepareOnly:
-            print "skip %s %s - %.1f from %d minutes after last check" % ( vk_id, fname, pause/60, rate )
+            print "skip %s - %.1f from %d minutes after last check" % ( prefix, pause/60, rate )
+        return False
+    return True
+
+def TouchHashFile():
+    global hashfile
+    with open( hashfile, 'wb') as f:
+        f.write( '%s' % time.time() )
+
+
+""" ================== API =========================="""
+def Watch( rate, vk_id, fname, to_watch, to_notify ):
+    global glob_vkapi
+
+    if not isAllowByRate( rate, '%s.%s'%(fname, vk_id), hash( repr([to_watch,to_notify]) ) ):
         return
 
     res = {}
@@ -667,17 +752,53 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
             func( glob_vkapi, vk_id, options )
         except vk.VkError as e:
             util.say( "VKError: %s", [str(e)] )
+            DBG.trace( "VKError: %s", [str(e)] )
 
     # after 2nd pass - mark that check done
     if not glob_vkapi.doPrepareOnly:
-        with open( hashfile, 'wb') as f:
-            f.write( '%s' % time.time() )
+        TouchHashFile()
+
+def Run( rate, fname, cmd, to_notify ):
+    global glob_vkapi
+
+    if not isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
+        return
+    if glob_vkapi.doPrepareOnly:
+        return
+
+    stdout,stderr = RunMainScript( cmd )
+    res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
+    res = map( lambda s: (s.split('{MACHINE}: mode=',1)+[s])[1], res )              # safe cutoff {MACHINE} and before from each line
+    stdout = (''.join(res)).strip()
+    print "--\n%s\n%s" % ( stdout, stderr )
+
+    TouchHashFile()
+
+    if cmd[0]!='message':
+        return
+
+    msgid = 'default'   # -- this is for todo (is because of vk command received)
+
+    IF_DEL = int(cmd[3])
+    # case: default regular save (store msg with postponed del) - do not notify because this is regular thing. Check result in the log
+    if ( IF_DEL==0 ):
+        return
+
+    # case: autosave on - do not notify if nothing was stored/deleted
+    if ( IF_DEL==1 and msgid=='default' and stdout.find('. *0')>=0 and stdout.find('), -0(')>=0 ):
+        return
+
+    make_notify( [stdout + (u'\nERR: %s'%stderr if stderr else '')], '.notificatons-messagebackup.log')
+
 
 if __name__ == '__main__':
     try:
         main()
+        util.say("execution finished")
     except Exception as e:
-        DBG.trace( 'EXCEPTION: %s %s', [ type(e), unicode(e) ] )
+        tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
+        DBG.trace( 'EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
+                            '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
         bullet_notifier( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
         util.say_cp866( unicode(e) )
         raise

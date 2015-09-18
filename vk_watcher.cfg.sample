@@ -3,12 +3,15 @@ SKIP_AUTH_TOKEN =  False     	# Do not authenticate using AUTH TOKEN
 INVISIBLE_MODE = -1		# -1 - allow to full authorize if hidden
 #MACHINE = True
 
-
 TOKEN_JEAPIE = ""		# personal token for jeapie.com service
 TOKEN_PUSHBULLET = ''		# personal access token for pushbullet service (https://www.pushbullet.com/#settings/account)
 WATCHERS_PY= './vk_watchers_list.py'		# PYTHON CODE WHiCH ACTUALLY DESCRIBE WATCHERS
+                                     
+#PYTHON_EXE = 'C:\MY\Python27\python.exe'			# usually detected automatically
+#VK_DOWNLOADER = 'C:\MY\GITHUB\vk_downloader\vk_downloader.py'  # usually detected automatically
 
 
+####################################3
 
 DAYSBEFORE=700       	 # How deeply load history
 IF_DELETE=None      	 # Delete messages: None - ask, False/True - delete or not

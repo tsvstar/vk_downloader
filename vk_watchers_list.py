@@ -24,10 +24,20 @@ Format:
 
 #Add your own watchers here. Below are just samples
 
+hour_now = time.localtime().tm_hour
+silent = (hour_now>=23 or hour_now<7)
+
+
 # Track "live vk" community (not more frequent than once per 9 minutes)
 Watch( 9, -2158488,  "live_vk",     [ "wall:*", "video:*", "photo:*", "mp3"], ["vk", 'bullet'] ) 
 # Track "Pavel Durov" page  (not more frequent than once per 5 minutes)
 Watch( 5, 1,  "durov",     [ "wall:*", "video:*", "photo:*", "mp3"], ["vk", 'bullet'] ) 
 # Track "Pavel Durov" status (incoming messages, change offline->online, status text)
-Watch( 1, 1,  "durov_msg",        [ "message", "online",'status' ],   ['bullet:!'] )
+Watch( 1, 1,  "durov_msg",        [ "message", "online",'status' ],   [] if silent else ['bullet:!'] )
 
+# Continuosly store message history with Durov
+Run( 1, "msg.durov", ['message', '', '1', '0','--DOWNLOAD_VIDEO=False','--DOWNLOAD_MP3=False'], ['vk:msg.n'] )
+
+# Continuosly backup Durov wall
+Run( 3, "backup", ['wall', '', "1", '0', '--LOAD_LIKES=False', '--SEPARATE_TEXT=None',
+                    '--DAYSBEFORE=7', '--DOWNLOAD_MP3=False', '--DOWNLOAD_VIDEO=False'], [] )
