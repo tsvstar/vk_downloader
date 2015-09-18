@@ -365,4 +365,6 @@ class VkAPIMethodError(VkError):
         super(Exception, self).__init__()
 
     def __str__(self):
-        return "{error_code}. {error_msg}. params = {request_params}".format(**self.error)
+        er = { 'error_code':'?', 'error_msg':'no error', 'request_params':'no param'}
+        er.update( self.error )
+        return "{error_code}. {error_msg}. params = {request_params}".format(**er)

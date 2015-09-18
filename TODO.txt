@@ -3,7 +3,7 @@ TODO:
 	LOGGING: debug - - why happens unsafe cleaning?
 
 	* FAIL TO DECRYPT YOUTUBE
-		http://youtu.be/nYwe_WHARdc 
+		http://youtu.be/nYwe_WHARdc
 			--> fail to decrypt again
 
 	 change order of choosing format (webm(vp8) have better quality for 360p)
@@ -13,7 +13,7 @@ TODO:
 	  #  -->  + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676367305285&ip=46.164.135.35&key=yt5&itag=140&mime=audio%2Fmp4&keepalive=yes&clen=7290578&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=154BA0F13BBCABCB9FDFE876AF450804EE93446B.9F54E30B4BD872A0E887649B963FE13AEDD6EEEB&pl=22&mm=31&dur=454.089&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&type=audio/mp4;+codecs="mp4a.40.2"&index=592-1175&bitrate=129645&init=0-591&
 	  #       + https://r1---sn-q5u5bgv02-3c2s.googlevideo.com/videoplayback?expire=1428697347&ipbits=0&sparams=clen%2Cdur%2Cgir%2Cid%2Cinitcwndbps%2Cip%2Cipbits%2Citag%2Ckeepalive%2Clmt%2Cmime%2Cmm%2Cms%2Cmv%2Cpl%2Crequiressl%2Csource%2Cupn%2Cexpire&initcwndbps=2347500&sver=3&lmt=1402676376236216&ip=46.164.135.35&key=yt5&itag=135&mime=video%2Fmp4&keepalive=yes&clen=6460073&gir=yes&upn=c7jbnhLCnow&mv=m&mt=1428675648&ms=au&fexp=900720%2C905652%2C907263%2C931392%2C932627%2C932631%2C934954%2C937836%2C9407092%2C9408092%2C9408163%2C9408196%2C9408269%2C9408618%2C9408708%2C947243%2C948124%2C948703%2C951703%2C952612%2C957201%2C961404%2C961406&source=youtube&signature=7F632C563F0569E34285FF2CBA466B3B869854A2.86D712EDC84F694A70F725436D4E8DC5252B79CC&pl=22&mm=31&dur=453.968&requiressl=yes&id=o-AKyMIbJLqJz_LKRETFG8tU4Y7ItNiDI2ENoC6qTJGIq2&projection_type=1&init=0-709&fps=30&size=804x480&type=video/mp4;+codecs="avc1.4d401f"&index=710-1833&bitrate=297257&
 
-TOCHECK: 
+TOCHECK:
 	how works storing MP3 from message (was failed on save_data_file)
 	--INVISIBLE_MODE - test different values + interactive
 	load by day, wall_dedupe, wall_hide_only_image
@@ -22,9 +22,26 @@ TOCHECK:
 	HOW DOWNLOAD private photos(??not a problem i think)
 
 TODO:
+    watcher module (watch wall/photo/mp3/video -- optionally likes/comments/views). notify to user/jeapie
+        watch \t wall:like+comment+fwd, photo, mp3, video:like+comment+view \t-> name:pwd@jeapie, id
+
+    update video download sequence (auth with official client appid)
+            http://habrahabr.ru/post/213163/
+
+    make mp3 check uniquity by id
+
+TODO:
 	FAIL TO LOAD https://vk.com/video135963679_170998138
 			https://vk.com/video179408366_171035421
-	remember MP3 by its code to avoid download on reordering? but it could change(?)	
+	remember MP3 by its code to avoid download on reordering? but it could change(?)
+		--> check size by  HEAD request
+			requests.head(url).headers.get('content-length', None) '8176'
+			>>> urllib.urlopen(url).info()['content-length'] '38227'
+			>>> len(requests.get(url).content) 38274
+
+	remember passwords login-dependend (PWD_ENC_login@where = token)
+	batch mode - given file which contain strings with argv for the dloader (the only one thing - it have to have same login/cfg)
+	give cfg file as ARGV parameter
 
 	restore "user" --RESTORE_DEPTH=XX[m|h|d|y]
 	--SAFE_RESTORE=XX[m|h|d|y]:
@@ -42,7 +59,7 @@ TODO:
 
 	WHY lastdel_time,stoptime could be int?
 	simplify output (vk:...) and command (vk_*)
-	
+
 
 TODO:
 	hide deduped post in index file
@@ -79,7 +96,7 @@ DONE:
 	  KNOWN BUGS:	1) cookies required to get wall are hardcoded so this could be failed in futher
 			2) When copy url from address bar of browser it contains unusable (because dif session) access_key and no info about exact source.
 			   We try to find, although not sure
-	 
+
 	* WALL_BACKUP - if any comments were removed - leave "copy"
 			   - messages/indexes got from latest cache
 
