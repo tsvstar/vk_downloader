@@ -7,9 +7,9 @@ import traceback, imp
 # TODO:
 #       postponed send (up to N changes since first change are collected) - minimize num of notification
 #       option: -XX means exclude notifier for this item ('-vk' - exclude vk)
+#       option everywhere: exXXX|YY| - exclude by id
 #       COMMAND
-#       exclude view/comments/like for not owned by user video (for group not owned by any user?)
-#       minimum offline period
+#       jitter_suppress (rate/2, if something was changed to zero remember in tmpfile prefix.jitter "was", then compare that values)
 """
 vk_help
 vk_list                     --> task - status(active,disabled), notify(silent)
@@ -26,8 +26,9 @@ vk_restore                  - restore messages
 
 # DONE:
 # "Run" handler
-# log: notify, vkerror, traceback, online status
+# log: notify, vkerror, traceback, online status, squeezed online status, vk_answer if something changed
 # config: PRECISE, ENFORCE
+# options:   wall:from=XX|YY, wall:id, online:XX, video:owneronly
 
 import vk_utils
 import tsv_utils as util
@@ -249,10 +250,12 @@ def TRACE_AR( name, ar ):
 #       items - current items list (always start from [overall_count])
 #       max_num - after this limit do not check for delete (so if N new were added, then last N will go away from list if limited)
 #       extra_fields_names - list of names fields starting from idx=1 (if changed - notify using this name)
+#       show_new_as_text - if false then always use id instead of human-readable
+#       vk_resp - answers of vk to logging in trace in case if something was changed
 # NOTE:
 #       a) used glob_fname/glob_fpath to load prev/save this list [TODO: postponed save? -- to avoid missed notification??]
 #       b) presumed that in normal item idx=0 always id, idx=-1 always 'human readable name'
-def compare_items( items, max_num, extra_fields_names, show_new_as_text = True ):
+def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, vk_resp = {} ):
     was = loadfile( [ [ 0 ] ] )
     was_dict, was_extra = make_dict( was, max_num )
     now_dict, now_extra = make_dict( items, max_num )
@@ -304,7 +307,9 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True )
         for idx in range_extra_fields:
             old_val = str(i[idx+1])
             new_val = str( now_dict[ str(i[0]) ][idx+1] )
-            if i[idx+1] != new_val:
+            if old_val != new_val:
+                if old_val=='?' or new_val=='?':
+                    continue
                 try:
                     new_val = int(new_val)
                     old_val = int(old_val)
@@ -318,6 +323,9 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True )
     if len(notify):
         save_file( items )
         make_notify( [ u'>%s: %s' % (glob_main.upper(), u';\n'.join(notify) ) ] )
+        trace = [ {'main:count': vk_resp.get(u'count','??')} ]
+        trace += vk_resp.get(u'items', [] )
+        TRACE_AR( 'CHANGE DETECTED. This is correspondend vk_response', trace )
 
 # PURPOSE: add regarding to "glob_notify" notifications from list
 def make_notify( notify, logfile = '.notificatons-main.log' ):
@@ -342,11 +350,28 @@ def wall_handler( vk_api, vk_id, options ):
     if vk_api.doPrepareOnly:
         return
 
-    items = [ [ res[u'count'] ] ]
+    # find 'from=XX|YY' option
+    only_from = []
+    for o in options:
+        if not o.startswith('from='):
+            continue
+        ids = map( lambda s: s.strip(), o.split('=',1)[1].split('|') )
+        for i in ids:
+            try:
+                only_from.append( int(i) )
+            except:
+                pass
+    if only_from:
+        print "onlyfrom", only_from
+
+    count = '1' if only_from else res[u'count']     # for "only_from" filter common count is useless and produce false alarms
+    items = [ [ count  ] ]
     for i in res[u'items']:
+        if only_from and int(i[u'from_id']) not in only_from:
+            continue
         items.append( [ i[u'id'], getcount(i,u'comments'), getcount(i,u'likes'), getcount(i,u'reposts'), i.get(u'text','') ] )
     if 'new_only_as_msg' not in options:
-        compare_items( items, precision-10, ['comments','likes','reposts', 'text'], 'new' in options )
+        compare_items( items, precision-10, ['comments','likes','reposts', 'text'], 'id' not in options, vk_resp=res )
     else:
         # SPECIAL CASE: send text of all new posts on the wall
         was = loadfile( [ [ 0 ] ] )
@@ -373,7 +398,10 @@ def video_handler( vk_api, vk_id, options ):
     items = [ [ res[u'count'] ] ]
     for i in res[u'items']:
         items.append( [ i[u'id'], getcount(i,u'likes'), getcount(i,u'views',False), getcount(i,u'comments',False), i.get(u'title','') ] )
-    compare_items( items, precision-10, ['likes','views','comments'] )
+        if ('owneronly' in options ) and int(i[u'owner_id'])!=vk_id:
+            # ignore extras for added(not loaded) video, if option 'owneronly' defined
+            items[-1] =[ i[u'id'], '?', '?', '?', i.get(u'title','') ]
+    compare_items( items, precision-10, ['likes','views','comments'], vk_resp=res )
 
 
 def mp3_handler( vk_api, vk_id, options ):
@@ -385,7 +413,7 @@ def mp3_handler( vk_api, vk_id, options ):
     items = [ [ res[u'count'] ] ]
     for i in res[u'items']:
         items.append( [ '%s_%s'%(i[u'owner_id'],i[u'id']), u'%s - %s (%ssec)'% (i[u'artist'],i[u'title'],i['duration']) ] )
-    compare_items( items, precision-50, [] )
+    compare_items( items, precision-50, [], vk_resp=res )
 
 
 def photo_handler( vk_api, vk_id, options ):
@@ -402,7 +430,7 @@ def photo_handler( vk_api, vk_id, options ):
     for i in res[u'items']:
         #items.append( [ i[u'id'], i[u'size'], i.get(u'updated',0), i[u'title'] ] )
         items.append( [ i[u'id'], i[u'size'], i[u'title'] ] )
-    compare_items( items, precision-30, ['size'] )
+    compare_items( items, precision-30, ['size'], vk_resp=res )
 
     if res_comment is None:
         return
@@ -413,7 +441,7 @@ def photo_handler( vk_api, vk_id, options ):
     items = [ [ res_comment[u'count'] ] ]
     for i in res_comment[u'items']:
         items.append( [ '%s:%s'%(i[u'id'],i[u'pid']), u'%s_%s: %s' % ( vk_id, i[u'pid'], i[u'text'][:100] ) ] )
-    compare_items( items, precision_comm-10, [] )
+    compare_items( items, precision_comm-10, [], vk_resp=res )
 
 
 def message_handler( vk_api, vk_id, options ):
@@ -473,19 +501,110 @@ def online_handler( vk_api, vk_id, options ):
     if vk_api.doPrepareOnly:
         return
 
+    # try to find numeric option - that is value for max ignored pause of offline
+    ignore_offline_pause = 0    # in minutes
+    for i in options:
+        try:
+            val = int(i.strip())
+            if val>=0:
+                ignore_offline_pause = val
+                break
+        except:
+            pass
+
     online =  res[0][u'online']
     if online:
         platform = platform_dict.get( res[0][u'last_seen'][u'platform'], '??')    # https://vk.com/dev/using_longpoll (7=web)
-    items = [ platform if online else '---' ]
+    items = [ [ platform if online else '---' ], [time.time()] ]
 
-    was = loadfile() + [['']]
+    was = loadfile() + [['0'],[0]]
     DBG.trace( 'online answer for %s is %s' % (vk_id,res) )
     ##DBG.trace( "compare online %s -- %s", [was[0],items[0]])
-    if was[0][0]!=items[0]:
+    if was[0][0]!=items[0][0]:
         save_file( items, shortLog=True )
+        squeeze_online_log( ignore_offline_pause )
         if online and was[0][0]=='---':
             #notify only when come online
+            try:
+                become_offline=int(float(was[1][0]))
+                if (items[1][0]-become_offline) < 60*ignore_offline_pause:
+                    DBG.trace( "Become offline %s. Ignore because period %1.f minutes is lower than ignore_offline_pause=%d ",
+                                     [ time.strftime("%d.%m.%y %H:%M", time.localtime(become_offline)), (items[1][0]-become_offline)/60, ignore_offline_pause] )
+                    return
+            except Exception as e:
+                DBG.trace('fail to get lastseen from was - %s\n%s', [repr(was), str(e) ] )
             make_notify( [u' ONLINE(%s)'%platform],'.notificatons-online.log' )
+
+# PURPOSE: produce squeezed online log from full version ( with respecting ignore_offline_pause argument, which is nominated in minutes )
+def squeeze_online_log( ignore_offline_pause ):
+
+    with open( '%s.log' % get_glob_path(), 'rb') as f:
+        res = f.read().strip().splitlines()
+
+    # Fill up periods list
+    periods = [ ]       # [ [from, till, type], .. ]
+
+    last = [0,'']
+    for i in res:
+        i = i.split(': ',1)
+        if i[1]=='---' and last[1]=='':
+            # skip leading 'offline' (find first online)
+            continue
+        now = time.mktime( time.strptime( i[0], "%d.%m.%y %H:%M") )
+        if last[1] not in ['---','']:
+            periods.append( [ last[0], now, last[1] ] )
+        last = [ now, i[1] ]
+    # if last period is not closed
+    if last[1] not in ['---','']:
+        periods.append( [ last[0], 0, last[1] ] )
+
+    # skip ignore_offline_pause intervals
+    ignore_offline_pause *= 60      # convert to seconds
+    periods_new = []
+    for start,end,type_ in periods:
+        # if first item or different type - enforce insert
+        if ( not periods_new ) or type_!=periods_new[-1][2]:
+            periods_new.append( [start,end,type_] )
+        else:
+            diff = start - periods_new[-1][1]
+            ##DBG.trace( "%s -> %s = %d-%d = %d vs %d" %(time.strftime('%H:%M',time.localtime(end)), time.strftime('%H:%M',time.localtime(start)), end, start, diff, ignore_offline_pause ) )
+            if diff < ignore_offline_pause:
+                # short offline - join to previous
+                periods_new[-1][1] = end
+            else:
+                periods_new.append( [start,end,type_] )
+
+    periods  = periods_new
+
+    # Make output
+    with open( '%s.log.squeezed' % get_glob_path(), 'wb' ) as f:
+        prev_date=''
+        prev_end_time = -1
+        start_period_time = -1
+        for start,end,type_ in periods:
+            d = time.strftime( "%d.%m.%y(%a)", time.localtime(start) )
+            if d!=prev_date:
+                prev_date = d
+                f.write("\n===== %s ======\n" % d )
+
+            if prev_end_time==start:
+                t1 = '.....'
+                ln = int( (25+end-start_period_time)/60 )
+                total = " / total %d:%02d" % (int(ln/60), ln%60)
+            else:
+                t1 = time.strftime( "%H:%M", time.localtime(start) )
+                total = ''
+                start_period_time = start
+            prev_end_time=end
+
+            if end:
+                t2 = time.strftime( "%H:%M", time.localtime(end) )
+                ln = int( (25+end-start)/60 )
+                f.write("%s\t%s - %s\t(len %2d:%02d%s)\n" % (type_,t1,t2, int(ln/60), ln%60, total) )
+            else:
+                ln = int( (25+time.time()-start)/60 )
+                f.write("%s\t%s - NOW\t(len %2d:%02d%s)\n" % (type_,t1, int(ln/60), ln%60, total) )
+
 
 
 """ ==================================================================== """
@@ -584,7 +703,7 @@ def bullet_notifier( text, enforce ):
 		return False
 
     devices = bullet._request("GET", "/devices")["devices"]
-    bullet.pushNote( devices[0]['iden'], 'VK', text )
+    bullet.pushNote( devices[0]['iden'], 'VK', u'%s: %s' % ( time.strftime("%H:%M",time.localtime()), text ) )
     return True
 
 
@@ -737,7 +856,7 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
     res = {}
     for w in to_watch:
         main, options = (w.replace(' ','').replace('\t','').lower().split(':')+[''])[:2]
-        options = options.split(',')
+        options = filter( len, map( lambda s: s.strip(), options.split(',') ) )
         func = globals().get( '%s_handler' % main, None )
         if not callable( func ):
             print "NO '%s' HANDLER FOUND" % main
