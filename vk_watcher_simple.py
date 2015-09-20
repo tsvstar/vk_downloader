@@ -5,21 +5,20 @@ import vk
 import traceback, imp
 
 # TODO:
+#       COMMAND
 #       option: -XX means exclude notifier for this item ('-vk' - exclude vk)
 #       option everywhere: exXXX|YY| - exclude by id
-#       COMMAND
-#       jitter_suppress (rate/2, if something was changed to zero remember in tmpfile prefix.jitter "was", then compare that values)
-#           maybe asks for execution out of order? maybe enforced request again if jitter detection (3 pass -- 1:prepare, 2: detect jitter and do re-request, 3:main)
 #       accumulate changes ( if same entity changed continuosly - remember values and send whole way once it will be stabilized) - ACCUMULATE_MINUTES=11
 #       postponed send (up to N changes since first change are collected) - minimize num of notification
-#       DBG.trace2 --> write content to trace2.log but mark in main by [:50] of first non empty string + "LOG TO TRACE2 {rnd}: STR..."
+#       programmable options '@optname' (turn on/off offline for example)
 """
 vk_help
-vk_list                     --> task - status(active,disabled), notify(silent)
+vk_list                     --> task - status(active,disabled), notify(silent); options list
 vk_list_full                --> task - arg1, arg2, ..
 vk_join/vk_leave groupid    - join/leave group
-vk_notify +/- task,...      - turn on/off notification for task(s)
-vk_enable +/- task,...      - turn on/off task(s)
+vk_notify +/-task,...       - turn on/off notification for task(s)
+vk_enable +/-task,...       - turn on/off task(s)
+vk_option optname=value     - set value for programmable options
 vk_store  [task]            - run message task with store (regardless of its rate right now) and notify about state
 vk_clean [task]             - run message task with enforced message delete
 vk_autoclean on/off [task]  - change mode for message task
@@ -29,9 +28,10 @@ vk_restore                  - restore messages
 
 # DONE:
 # "Run" handler
-# log: notify, vkerror, traceback, online status, squeezed online status, vk_answer if something changed
+# log: notify, vkerror, traceback, online status, squeezed online status, vk_answer if something changed; DBG.trace2; send to pushbullet when DBG.error
 # config: PRECISE, ENFORCE
 # options:   wall:from=XX|YY, wall:id, online:XX, video:owneronly
+# jitter suppresion: if count or any extra changed to zero then do enforced re-request immediately
 
 import vk_utils
 import tsv_utils as util
@@ -153,7 +153,11 @@ glob_notify = []        # list of notification target [  [notify_type1,notify_qu
 notifications = {}      # notifications[notify_type][queue][objid] = [ wall_notify, ..]
 glob_sendto_vk = None   # id of target user for notify
 glob_queue = None       # currently processed queue
-glob_precise = True
+glob_precise = True     # True if high precision check, False if low precision check
+glob_jitter_detected = False  # raise to True if suspect about jitter
+
+old_dbg_important = DBG.important   # remember real DBG.important
+
 
 def get_glob_path():
     global glob_fname, glob_main, DIR_MAIN
@@ -257,6 +261,8 @@ def TRACE_AR( name, ar ):
 #       extra_fields_names - list of names fields starting from idx=1 (if changed - notify using this name)
 #       show_new_as_text - if false then always use id instead of human-readable
 #       vk_resp - answers of vk to logging in trace in case if something was changed
+# RETURN:
+#       True if suspect jitter
 # NOTE:
 #       a) used glob_fname/glob_fpath to load prev/save this list [TODO: postponed save? -- to avoid missed notification??]
 #       b) presumed that in normal item idx=0 always id, idx=-1 always 'human readable name'
@@ -265,12 +271,40 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
     was_dict, was_extra = make_dict( was, max_num )
     now_dict, now_extra = make_dict( items, max_num )
     was_set, now_set = set( was_dict.keys() ), set( now_dict.keys() )
+    range_extra_fields = range( len(extra_fields_names) )
     ##TRACE_AR('was',was)
     ##TRACE_AR('now',items)
     ##TRACE_AR('was_dict',was_dict)
     ##TRACE_AR('now_dict',now_dict)
 
+    global glob_jitter_detected
+
+    if not glob_jitter_detected:
+        # Check for possible jitter
+        if int(was[0][0]) and not int(items[0][0]):
+            glob_jitter_detected = True
+            DBG_trace('count %s->%s', [was[0], items[0]])
+        else:
+            for i in was:
+                if len(i)<2:
+                    continue
+                if i[0] not in now_dict:
+                    continue
+                compare = []
+                for idx in range_extra_fields:
+                    old_val = str(i[idx+1])
+                    new_val = str( now_dict[ str(i[0]) ][idx+1] )
+                    print repr(old_val), repr(new_val)
+                    if old_val not in ['',0,'0','?'] and new_val in ['',0,'0']:
+                        glob_jitter_detected = True
+                        DBG.trace("change %s: %s->%s\n%s\n->\n%s", [extra_fields_names[idx],old_val,new_val, i, now_dict[ str(i[0]) ]])
+        if glob_jitter_detected:
+            DBG.error('suspect jitter for %s.%s', [glob_fname, glob_main])
+            TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
+            return True
+
     notify = []
+    enforceSave = False
 
     # compare count
     if int(was[0][0])!=int(items[0][0]):
@@ -302,7 +336,6 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
                 notify.append(u'del "%s"' % (txt if txt else 'id%s'%id) )
 
     # find changes
-    range_extra_fields = range( len(extra_fields_names) )
     for i in was:
         if len(i)<2:
             continue
@@ -313,6 +346,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
             old_val = str(i[idx+1])
             new_val = str( now_dict[ str(i[0]) ][idx+1] )
             if old_val != new_val:
+                enforceSave = True
                 if old_val=='?' or new_val=='?':
                     continue
                 try:
@@ -325,12 +359,16 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
             txt = str( i[-1] if len(i[-1])<100 else i[-1][:100] ).strip()
             notify.append( u'%s changed: %s' % ( (txt if txt else 'id%s'%i[0]), ', '.join(compare)) )
 
-    if len(notify):
+    if enforceSave or len(notify):
         save_file( items )
+
+    if len(notify):
         make_notify( [ u'>%s: %s' % (glob_main.upper(), u';\n'.join(notify) ) ] )
         trace = [ {'main:count': vk_resp.get(u'count','??')} ]
         trace += vk_resp.get(u'items', [] )
         TRACE_AR( 'CHANGE DETECTED. This is correspondend vk_response', trace )
+    return False
+
 
 # PURPOSE: add regarding to "glob_notify" notifications from list
 def make_notify( notify, logfile = '.notificatons-main.log' ):
@@ -352,7 +390,7 @@ def make_notify( notify, logfile = '.notificatons-main.log' ):
 def wall_handler( vk_api, vk_id, options ):
     precision = 100 if glob_precise else 75
     res = vk_api.wall.get( owner_id=vk_id, count=precision, filter='all')
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     # find 'from=XX|YY' option
@@ -375,8 +413,9 @@ def wall_handler( vk_api, vk_id, options ):
         if only_from and int(i[u'from_id']) not in only_from:
             continue
         items.append( [ i[u'id'], getcount(i,u'comments'), getcount(i,u'likes'), getcount(i,u'reposts'), i.get(u'text','') ] )
+
     if 'new_only_as_msg' not in options:
-        compare_items( items, precision-10, ['comments','likes','reposts', 'text'], 'id' not in options, vk_resp=res )
+        return compare_items( items, precision-10, ['comments','likes','reposts', 'text'], 'id' not in options, vk_resp=res )
     else:
         # SPECIAL CASE: send text of all new posts on the wall
         was = loadfile( [ [ 0 ] ] )
@@ -406,7 +445,7 @@ def video_handler( vk_api, vk_id, options ):
         if ('owneronly' in options ) and int(i[u'owner_id'])!=vk_id:
             # ignore extras for added(not loaded) video, if option 'owneronly' defined
             items[-1] =[ i[u'id'], '?', '?', '?', i.get(u'title','') ]
-    compare_items( items, precision-10, ['likes','views','comments'], vk_resp=res )
+    return compare_items( items, precision-10, ['likes','views','comments'], vk_resp=res )
 
 
 def mp3_handler( vk_api, vk_id, options ):
@@ -435,7 +474,8 @@ def photo_handler( vk_api, vk_id, options ):
     for i in res[u'items']:
         #items.append( [ i[u'id'], i[u'size'], i.get(u'updated',0), i[u'title'] ] )
         items.append( [ i[u'id'], i[u'size'], i[u'title'] ] )
-    compare_items( items, precision-30, ['size'], vk_resp=res )
+    if  compare_items( items, precision-30, ['size'], vk_resp=res ):
+        return True     # jitter detected
 
     if res_comment is None:
         return
@@ -755,6 +795,8 @@ def main():
     DBG.logfile_name='./LOG_WATCHER/vk_watch'
     DBG.level = DBG.TRACE
 
+    DBG.error = classmethod( new_dbg_important )
+
     DBG.important( u">>> RUN vk_watcher at %s" % os.getcwdu() )
     if 'BASE_DIR' in globals() and BASE_DIR:
         os.chdir(BASE_DIR)
@@ -807,8 +849,8 @@ def main():
     for pass_ in [ 1, 2 ]:
         glob_vkapi.doPrepareOnly = ( pass_==1 )
         util.say( "Do %d pass", pass_ )
-        #compile( watchers_code , "<watchers_py>", "exec")
-        exec( watchers_code )
+        #checkCommands()
+        exec( watchers_code )           ##compile( watchers_code , "<watchers_py>", "exec")
 
         DBG.trace('execute requests')
         glob_vkapi.execute()
@@ -873,10 +915,15 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
         glob_fname = fname
         DBG.trace( 'WATCH %s/%s [%spass]', [fname,main, 1 if glob_vkapi.doPrepareOnly else 2 ])
         try:
-            func( glob_vkapi, vk_id, options )
+            global glob_jitter_detected
+            glob_jitter_detected = False
+            rv = func( glob_vkapi, vk_id, options )
+            if rv is True:
+                DBG.important("jitter detected - do re-request")
+                glob_jitter_detected = True
+                func( glob_vkapi.vk_api, vk_id, options )
         except vk.VkError as e:
-            util.say( "VKError: %s", [str(e)] )
-            DBG.trace( "VKError: %s", [str(e)] )
+            DBG.say( DBG.TRACE, "VKError: %s", [str(e)] )
 
     # after 2nd pass - mark that check done
     if not glob_vkapi.doPrepareOnly:
@@ -914,6 +961,16 @@ def Run( rate, fname, cmd, to_notify ):
 
     make_notify( [stdout + (u'\nERR: %s'%stderr if stderr else '')], '.notificatons-messagebackup.log')
 
+# Send notification about internal errors
+def new_dbg_important( self, *kw, **kww ):
+    old_dbg_important( *kw,**kww )
+    try:
+        bullet_notifier( util.unicformat(*kw,**kww), enforce = True )
+    except Exception as e:
+        tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
+        old_dbg_important( 'FAIL TO notify DBG.important -- EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
+                            '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
+
 
 if __name__ == '__main__':
     try:
@@ -921,7 +978,7 @@ if __name__ == '__main__':
         util.say("execution finished")
     except Exception as e:
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
-        DBG.error( 'EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
+        DBG.important('EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
                             '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
         bullet_notifier( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
         util.say_cp866( unicode(e) )
