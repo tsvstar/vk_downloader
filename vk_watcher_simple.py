@@ -369,8 +369,9 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
     return False
 
 
+main_notification_log = '.notificatons-main.log'
 # PURPOSE: add regarding to "glob_notify" notifications from list
-def make_notify( notify, logfile = '.notificatons-main.log' ):
+def make_notify( notify, logfile = main_notification_log ):
     global glob_notify, notifications
 
     DBG.trace( "make_notify %s", [notify] )
@@ -664,10 +665,15 @@ def squeeze_online_log( ignore_offline_pause ):
 
 """ ==================================================================== """
 
+logger_notifier_cache = set()
 def logger_notifier(  text , enforce ):
     text = text.strip()
     if not text:
 		return False
+
+    if text in logger_notifier_cache:
+        return
+    logger_notifier_cache.add( text )
 
     global DIR_MAIN
     fpath = os.path.join( DIR_MAIN, glob_queue)
@@ -990,7 +996,9 @@ if __name__ == '__main__':
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
         DBG.important('EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
                             '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
-        bullet_notifier( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
+        for func in [bullet_notifier, logger_notifier ]:
+            glob_queue = main_notification_log
+            func( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
         util.say_cp866( unicode(e) )
         raise
 
