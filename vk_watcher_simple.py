@@ -105,9 +105,11 @@ def RunMainScript( cmd ):
         if isinstance(stderr,str): stderr = stderr.decode('cp866')
 
         print "--\n%s" % stdout
-        DBG.trace(u"STDOUT:%s", stdout)
-        if stderr:
-            DBG.trace(u"STDERR:%s", stdout)
+        if not stderr:
+            DBG.trace2(u"STDOUT:%s", stdout)
+        else:
+            DBG.trace(u"STDOUT:%s", stdout)
+            DBG.trace(u"STDERR:%s", stderr)
         return stdout, stderr
 
 import inspect
@@ -919,7 +921,7 @@ if __name__ == '__main__':
         util.say("execution finished")
     except Exception as e:
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
-        DBG.trace( 'EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
+        DBG.error( 'EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
                             '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
         bullet_notifier( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
         util.say_cp866( unicode(e) )

@@ -303,6 +303,17 @@ class DBG(object):
     def trace( *kw, **kww ):
         DBG._log( 2, *kw, **kww )
 
+    # specific huge output (to separate trace2.log file + remark in main)
+    @staticmethod
+    def trace2( *kw, **kww ):
+        import random
+        message = unicformat(*kw,**kww)
+        message_ar = filter(len, map(lambda s: s.strip(), message.splitlines() )) + ['']
+        rnd = u"{id%x}" % ( random.randint(0,99999) )
+        DBG._log( 2, "Logged to trace2.log %s: %s...", [rnd, message_ar[0][:60]] )
+        txt = u"%s %s: %s\n" % ( time.strftime("%d.%m %H:%M:%S"), rnd, message  )
+        DBG._write( DBG.logfile_name + '_trace2.log', txt)
+
 _debugGuard = False
 def debugDump( obj, short = False ):
     global _debugGuard
