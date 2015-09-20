@@ -839,8 +839,8 @@ def isAllowByRate( rate, prefix, hash_ ):
             hash_cache[hashfile] = None
     pause = hash_cache[hashfile]
     if pause is not None and pause < 60*rate:
-        DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
         if glob_vkapi.doPrepareOnly:
+            DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
             print "skip %s - %.1f from %d minutes after last check" % ( prefix, pause/60, rate )
         return False
     return True
