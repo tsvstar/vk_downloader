@@ -5,11 +5,14 @@ import vk
 import traceback, imp
 
 # TODO:
-#       postponed send (up to N changes since first change are collected) - minimize num of notification
 #       option: -XX means exclude notifier for this item ('-vk' - exclude vk)
 #       option everywhere: exXXX|YY| - exclude by id
 #       COMMAND
 #       jitter_suppress (rate/2, if something was changed to zero remember in tmpfile prefix.jitter "was", then compare that values)
+#           maybe asks for execution out of order? maybe enforced request again if jitter detection (3 pass -- 1:prepare, 2: detect jitter and do re-request, 3:main)
+#       accumulate changes ( if same entity changed continuosly - remember values and send whole way once it will be stabilized) - ACCUMULATE_MINUTES=11
+#       postponed send (up to N changes since first change are collected) - minimize num of notification
+#       DBG.trace2 --> write content to trace2.log but mark in main by [:50] of first non empty string + "LOG TO TRACE2 {rnd}: STR..."
 """
 vk_help
 vk_list                     --> task - status(active,disabled), notify(silent)

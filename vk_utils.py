@@ -57,7 +57,7 @@ def VKLoginByToken( FILE_AUTH, FILE_AUTH_BAK ):
         _add_profile( me, answer )
         util.say( "Залогинены в offline-режиме как %s", config.CONFIG['USER_LOGIN'] )
     except Exception as e:
-        util.TODO( e )
+        util.DBG.TODO( e )
         vk_api = None
     if vk_api is not None and FILE_AUTH_BAK is not None:
         with open(FILE_AUTH_BAK,'wb') as fout:
@@ -104,7 +104,7 @@ def VKLoginByPassword( USER_LOGIN, fldPwd = None, fldPwdEncoded='USER_PASSWORD_E
                 cfgfile.write('%s="%s"\n' % ( fldPwdEncoded, PWD_ENC ) )
          break
       except Exception as e:
-         util.say( "ERROR: %s\n", e )
+         util.DBG.say( "ERROR: %s\n", e )
          USER_PASSWORD =''
 
     answer = vk_api.users.get()[0]
@@ -176,7 +176,7 @@ def VKSignIn( USER_LOGIN, interactive = True ):
            if not me_status[u'online']:
              raise util.FatalError('')
         except Exception as e:
-              util.TODO( e )  # @tsv
+              util.DBG.TODO( e )  # @tsv
               raise util.FatalError('Ошибка авторизации - скрытый вход невозмозможен(отсутствует или неверный токен и вы не онлайн сейчас)')
 
 
@@ -186,7 +186,7 @@ def VKSignIn( USER_LOGIN, interactive = True ):
         VKSaveToken( vk_api, FILE_AUTH )
         VKSaveToken( vk_api, FILE_AUTH_BAK )
     except Exception as e:
-        util.TODO( e ) # @tsv
+        util.DBG.TODO( e ) # @tsv
         raise util.FatalError('Ошибка авторизации - неверный пароль')
 
   return vk_api, me, USER_PASSWORD
@@ -324,7 +324,8 @@ class BatchExecutor():
         try:
             result = self.vk_api.execute( code = code.replace("'",'"') ).get('output',[])
         except Exception as e:
-            util.TODO("Exception: %s" % e)
+            util.DBG.TODO("Exception: %s" % e)
+
         errors = self.vk_api.data.get('execute_errors',[])
         for ar in result:
             ##print ar, type(ar)
@@ -334,7 +335,7 @@ class BatchExecutor():
                     ar[2]=errors.pop(0)
                 else:
                     ar[2]=None
-                    util.TODO('Unexepected end of errors list')
+                    util.DBG.TODO('Unexepected end of errors list')
             else:
                 ar[2]=None
         self.result += result
