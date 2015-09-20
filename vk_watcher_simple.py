@@ -294,7 +294,6 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
                 for idx in range_extra_fields:
                     old_val = str(i[idx+1])
                     new_val = str( now_dict[ str(i[0]) ][idx+1] )
-                    print repr(old_val), repr(new_val)
                     if old_val not in ['',0,'0','?'] and new_val in ['',0,'0']:
                         glob_jitter_detected = True
                         DBG.trace("change %s: %s->%s\n%s\n->\n%s", [extra_fields_names[idx],old_val,new_val, i, now_dict[ str(i[0]) ]])
@@ -567,9 +566,13 @@ def online_handler( vk_api, vk_id, options ):
     ##DBG.trace( "compare online %s -- %s", [was[0],items[0]])
     if was[0][0]!=items[0][0]:
         save_file( items, shortLog=True )
-        squeeze_online_log( ignore_offline_pause )
+        last_online_start = squeeze_online_log( ignore_offline_pause )
         if 'verbose' in options:
-            make_notify( [u' ONLINE(%s)'%platform if online else u'OFFLINE'],'.notificatons-online.log' )
+            if online:
+                make_notify( [u' ONLINE(%s)'%platform],'.notificatons-online.log' )
+            else:
+                ln = int( (25+time.time()-last_online_start)/60 )
+                make_notify( [u'OFFLINE(len %2d:%02d)'%(int(ln/60), ln%60)],'.notificatons-online.log' )
         elif online and was[0][0]=='---':
             #notify only when come online
             try:
@@ -591,6 +594,7 @@ def squeeze_online_log( ignore_offline_pause ):
     # Fill up periods list
     periods = [ ]       # [ [from, till, type], .. ]
 
+    last_online_start = 0
     last = [0,'']
     for i in res:
         i = i.split(': ',1)
@@ -604,6 +608,8 @@ def squeeze_online_log( ignore_offline_pause ):
     # if last period is not closed
     if last[1] not in ['---','']:
         periods.append( [ last[0], 0, last[1] ] )
+    if len(periods):
+        last_online_start = periods[-1][0]
 
     # skip ignore_offline_pause intervals
     ignore_offline_pause *= 60      # convert to seconds
@@ -624,7 +630,8 @@ def squeeze_online_log( ignore_offline_pause ):
     periods  = periods_new
 
     # Make output
-    with open( '%s.log.squeezed' % get_glob_path(), 'wb' ) as f:
+    squeezedlog = '%s.log.squeezed' % get_glob_path()
+    with open( squeezedlog, 'wb' ) as f:
         prev_date=''
         prev_end_time = -1
         start_period_time = -1
@@ -652,6 +659,7 @@ def squeeze_online_log( ignore_offline_pause ):
                 ln = int( (25+time.time()-start)/60 )
                 f.write("%s\t%s - NOW\t(len %2d:%02d%s)\n" % (type_,t1, int(ln/60), ln%60, total) )
 
+    return last_online_start
 
 
 """ ==================================================================== """
