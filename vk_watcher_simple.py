@@ -30,7 +30,7 @@ vk_restore                  - restore messages
 # "Run" handler
 # log: notify, vkerror, traceback, online status, squeezed online status, vk_answer if something changed; DBG.trace2; send to pushbullet when DBG.error
 # config: PRECISE, ENFORCE
-# options:   wall:from=XX|YY, wall:id, online:XX, video:owneronly
+# options:   wall:from=XX|YY, wall:id, online:XX, video:owneronly, online:verbose
 # jitter suppresion: if count or any extra changed to zero then do enforced re-request immediately
 
 import vk_utils
@@ -568,7 +568,9 @@ def online_handler( vk_api, vk_id, options ):
     if was[0][0]!=items[0][0]:
         save_file( items, shortLog=True )
         squeeze_online_log( ignore_offline_pause )
-        if online and was[0][0]=='---':
+        if 'verbose' in options:
+            make_notify( [u' ONLINE(%s)'%platform if online else u'OFFLINE'],'.notificatons-online.log' )
+        elif online and was[0][0]=='---':
             #notify only when come online
             try:
                 become_offline=int(float(was[1][0]))

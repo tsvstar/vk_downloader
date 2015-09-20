@@ -26,6 +26,7 @@ Format:
             online:XXX                      - track online status
                                                 -- if numeric value defined (ex: "online:5"), then ignore offline period
                                                   which are no longer than this term (5 minutes in this case)
+                ,verbose                        -- notify about going offline too(and ignore numeric value)
             status                          - track status changes (do not notify audio->audio changes); no options
             message                         - track incoming unread messages(if other notify is turned off); no options
 
