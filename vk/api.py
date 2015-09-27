@@ -73,10 +73,20 @@ _safe_vkmethods = [ '.get',
                     'photos.getAlbums',
                     'messages.getDialogs',
                     'photos.getAll',
+                    'photos.getAllComments',
                     'messages.getById',
                     'likes.getList',
                     'wall.getComments',
                  ]
+
+# Return TRUE if method is non-destructive, so could be repeated safely in case of error
+def isMethodSafe( method_name ):
+    if ( method_name in _safe_vkmethods ):
+        return True
+    for s in _safe_vkmethods:
+        if s.startswith('.') and method_name.endswith(s):
+            return True
+    return False
 
 
 class APISession(object):
@@ -239,10 +249,13 @@ class APISession(object):
         if self.logRequest:
             SayToLog( "%s %s(%s)" % ( ( '?' if self.wasErrorFlag else '' ), method_name, str(method_kwargs) ) )
         nonFatalFlag = method_kwargs.pop( '_NON_FATAL', False )
+        safeToRerunFlag = method_kwargs.pop( '_SAFE_RERUN', False )
         ##print method_name
         ##print "%s(%s)" % (method_name, repr(method_kwargs))
-        response = self.method_request(method_name, **method_kwargs)
+        response = self.method_request(method_name, safeToRerunFlag=safeToRerunFlag, **method_kwargs)
         response.raise_for_status()
+        method_kwargs['_NON_FATAL'] = nonFatalFlag      # push auxilary value back if need repeat method
+        method_kwargs['_SAFE_RERUN'] = safeToRerunFlag
         ##sys.stdout.write('!')
 
         # there are may be 2 dicts in 1 json
@@ -293,7 +306,7 @@ class APISession(object):
                 return None
             raise VkAPIMethodError(errors[0])
 
-    def method_request(self, method_name, timeout=None, **method_kwargs):
+    def method_request(self, method_name, timeout=None, safeToRerunFlag=False,  **method_kwargs):
         retries = range(0,self.repeat_on_timeout)
         while True:
             try:
@@ -310,10 +323,7 @@ class APISession(object):
                 rv = self.session.post(url, params, timeout=timeout or self._default_timeout)
             except requests.Timeout as e:
                 ##print "Timeout"
-                isSafe = ( method_name in _safe_vkmethods )
-                for s in _safe_vkmethods:
-                    if s.startswith('.') and method_name.endswith(s):
-                        isSafe = True
+                isSafe = safeToRerunFlag or isMethodSafe( method_name )
                 if isSafe:
                     if retries:
                         retries.pop()

@@ -146,7 +146,7 @@ def print_mark( mark ):
 
 def unicformat( s, arg = None ):
     if arg is None:
-        return str_decode( s, scriptencoding )
+        return unicode( str_decode( s, scriptencoding ) )
     if isinstance(arg,tuple):
         arg=list(arg)
     if not isinstance(arg,list):
@@ -155,7 +155,7 @@ def unicformat( s, arg = None ):
         if isinstance(arg[idx],str):
             arg[idx] = str_decode( str(arg[idx]) )
     try:
-        return str_decode( s, scriptencoding ) % tuple(arg)
+        return unicode( str_decode( s, scriptencoding ) ) % tuple(arg)
     except UnicodeDecodeError:
         for a in arg: print type(a)
         raise

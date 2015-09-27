@@ -29,6 +29,8 @@ import config, tsv_utils as util
 # Cache of secondary login
 secondary = { 'vk_api': None, 'me': None, 'USER_PASSWORD': '' }
 
+TIMEOUT = 5
+
 """
 ===============================================
 *           AUTHORIZATION FUNCTIONS           *
@@ -49,7 +51,7 @@ def VKLoginByToken( FILE_AUTH, FILE_AUTH_BAK ):
     try:
         with open(FILE_AUTH,'r') as f:
             first = f.readlines()[0]
-            vk_api = vk.API( access_token=first, timeout=5 )
+            vk_api = vk.API( access_token=first, timeout=TIMEOUT )
             print vk_api
 
         answer = vk_api.users.get()[0]
@@ -95,7 +97,7 @@ def VKLoginByPassword( USER_LOGIN, fldPwd = None, fldPwdEncoded='USER_PASSWORD_E
          USER_PASSWORD = util.getinput( util.unicformat("Введите пароль для '%s': ", USER_LOGIN) )
          PWD_ENC = util.str_crypt64( USER_PASSWORD, USER_LOGIN )
       try:
-         vk_api = vk.API( config.CONFIG['APP_ID'], USER_LOGIN, USER_PASSWORD, scope='offline,messages,groups,photos,audio,video,wall,status,friends', timeout=5)
+         vk_api = vk.API( config.CONFIG['APP_ID'], USER_LOGIN, USER_PASSWORD, scope='offline,messages,groups,photos,audio,video,wall,status,friends', timeout=TIMEOUT )
          if not interactive:
                 break
          token = USER_LOGIN + '|'+ USER_PASSWORD
@@ -294,18 +296,18 @@ class BatchExecutor():
         self.commands = []          # list of triples [ ["cmd:ID", method, kww] ]
         self.result = []            # list of pairs [ ["cmd:ID", answer, errorCode] ]
         self.resultMap = {}         # map: {"cmd:ID": [answer,errorCode(None-no error)]}
+        self.SafeTimeout = False    # if True, then execute batched only consecutive non-destructive operations (this could significantly impact to performance in some cases)
+                                    # if False then combine operations to batch regardless of their safety and do not re-request on timeout
 
     def execute( self ):
         self.result = []
         self.resultMap = {}
 
         offset = 0
-        while (len(self.commands)>25):
-            self._execute(self.commands[:25], offset)
-            self.commands = self.commands[25:]
-            offset += 25
-        self._execute(self.commands[:25], offset)
-        self.commands = []
+        while len(self.commands):
+            processed = self._execute(self.commands[:25], offset)
+            self.commands = self.commands[processed:]
+            offset += processed
 
         for id, answer, err in self.result:
             self.resultMap[id] = [answer,err]
@@ -313,18 +315,24 @@ class BatchExecutor():
 
     def _execute( self, cmd_list, offset ):
         if not cmd_list:
-            return
+            return 0
 
+        safeToRerunFlag = True
         code = "var output=[];\n"
         for idx in range(0,len(cmd_list)):
+            if not vk.api.isMethodSafe( cmd_list[idx][1] ):
+                if self.SafeTimeout and idx:    # break sequence if found non-safe operation
+                    break
+                safeToRerunFlag = False
+
             code += ' var info_%s = API.%s(%s);\n' % (idx,cmd_list[idx][1],repr(cmd_list[idx][2]))
             code += ' output = output + [ ["%s",info_%s,%s] ];\n' % ( cmd_list[idx][0], idx, idx+offset )
         code += "return {output:output}; "
 
         try:
-            result = self.vk_api.execute( code = code.replace("'",'"') ).get('output',[])
+            result = self.vk_api.execute( code = code.replace("'",'"'), _SAFE_RERUN=safeToRerunFlag ).get('output',[])
         except Exception as e:
-            util.DBG.TODO("Exception: %s" % e)
+            util.DBG.TODO("Exception: %s", [e])
 
         errors = self.vk_api.data.get('execute_errors',[])
         for ar in result:
@@ -339,6 +347,7 @@ class BatchExecutor():
             else:
                 ar[2]=None
         self.result += result
+        return len(result)
 
     def __str__( self ):
         return "BatchExecutor(%x)" % (id(self))

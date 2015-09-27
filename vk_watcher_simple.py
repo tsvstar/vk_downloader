@@ -281,9 +281,9 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
 
     if not glob_jitter_detected:
         # Check for possible jitter
-        if int(was[0][0]) and not int(items[0][0]):
+        if int(was[0][0]) > int(items[0][0]):
             glob_jitter_detected = True
-            DBG_trace('count %s->%s', [was[0], items[0]])
+            DBG.trace('count %s->%s', [was[0], items[0]])
         else:
             for i in was:
                 if len(i)<2:
@@ -298,7 +298,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
                         glob_jitter_detected = True
                         DBG.trace("change %s: %s->%s\n%s\n->\n%s", [extra_fields_names[idx],old_val,new_val, i, now_dict[ str(i[0]) ]])
         if glob_jitter_detected:
-            DBG.error('suspect jitter for %s.%s', [glob_fname, glob_main])
+            DBG.info('suspect jitter for %s.%s', [glob_fname, glob_main])
             TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
             return True
 
@@ -369,6 +369,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
     return False
 
 
+
 main_notification_log = '.notificatons-main.log'
 # PURPOSE: add regarding to "glob_notify" notifications from list
 def make_notify( notify, logfile = main_notification_log ):
@@ -381,9 +382,8 @@ def make_notify( notify, logfile = main_notification_log ):
         #for n in notify:
         #    ref.append( n )
 
-    for n_type, n_queue in glob_notify:
-        ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(glob_fname,[])
-        ref += notify
+    ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(glob_fname,[])
+    ref += notify
 
 """ ==================================================================== """
 
@@ -665,15 +665,10 @@ def squeeze_online_log( ignore_offline_pause ):
 
 """ ==================================================================== """
 
-logger_notifier_cache = set()
 def logger_notifier(  text , enforce ):
     text = text.strip()
     if not text:
 		return False
-
-    if text in logger_notifier_cache:
-        return
-    logger_notifier_cache.add( text )
 
     global DIR_MAIN
     fpath = os.path.join( DIR_MAIN, glob_queue)
