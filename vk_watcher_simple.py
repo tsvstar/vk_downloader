@@ -118,7 +118,7 @@ def SendMsg( vk_api, message, prefix = None, _replaceAlias = False ):
     DBG.important(u'\nSENDMSG>>>\n%s\n<<<<', [message] )
     if prefix is None:
         if not message.startswith(u'vk:'):
-            prefix = u'vk:'
+            prefix = u'vk: '
         else:
             prefix = ''
     if _replaceAlias:
@@ -134,7 +134,7 @@ def ExecuteDownloadMSG( who, delFlag, options ):
             cmd.append( delFlag )
         cmd += ["--DOWNLOAD_MP3=True", "--DOWNLOAD_VIDEO=False", "--DAYSBEFORE=7" ] + options
         stdout,stderr = RunMainScript( cmd )
-        ##res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
+        res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
         res = map( lambda s: (s.split('{MACHINE}: mode=',1)+[s])[1], res )              # safe cutoff {MACHINE} and before from each line
         stdout = (''.join(res)).strip()
 
@@ -151,7 +151,7 @@ glob_main   = None      # type (ex:wall)
 glob_options = []       # list of requested extra options (comments,...)
 glob_notify = []        # list of notification target [  [notify_type1,notify_queue1], .. ]     ( [ ['vk', ''] , ['jeapie','!'], .. )
 notifications = {}      # notifications[notify_type][queue][objid] = [ wall_notify, ..]
-glob_sendto_vk = None   # id of target user for notify
+COMMAND_USER = None   # id of target user for notify
 glob_queue = None       # currently processed queue
 glob_precise = True     # True if high precision check, False if low precision check
 glob_jitter_detected = False  # raise to True if suspect about jitter
@@ -382,7 +382,8 @@ def make_notify( notify, logfile = main_notification_log ):
         #for n in notify:
         #    ref.append( n )
 
-    ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(glob_fname,[])
+    silent_flag = 'silent:' if not glob_notify else ''
+    ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(silent_flag+glob_fname,[])
     ref += notify
 
 """ ==================================================================== """
@@ -686,7 +687,6 @@ def vk_notifier( text , enforce ):
 
     #global glob_vkapi, glob_sendto_vk
     #glob_vkapi.messages.send( user_id=glob_sendto_vk, message=text )
-    globals()['COMMAND_USER'] =  glob_sendto_vk
     SendMsg( glob_vkapi, text )
     return True
 
@@ -798,6 +798,223 @@ def ExecuteNotification():
 
 
 """ ==================================================================== """
+glob_watchers = {}      # glob_watchers[taskname] = [ [type,id,extra], [type,id,extra],.. ]
+glob_cmd_notify = {}    # glob_cmd_notify[task] = [notify1, notify2]
+glob_backup_status = {} # if temporary request given - set it
+
+# Internal function which register all handlers in glob_watchers dictionary
+def doRegistration( watchers_code ):
+    def Watch( rate, vk_id, fname, to_watch, to_notify ):
+        global glob_watchers
+        glob_watchers.setdefault( fname, [] ).append( ['watcher',vk_id, to_watch] )
+
+    def Run( rate, fname, cmd, to_notify ):
+        global glob_watchers
+        glob_watchers.setdefault( fname, [] ).append( ['backup', cmd, 'default'] )
+
+    util.say( "Do cmd registering" )
+    exec( watchers_code )           ##compile( watchers_code , "<watchers_py>", "exec")
+
+# add notification
+def cmdNotifyCollect( cmd, notify, category = '!' ):
+    global glob_cmd_notify
+    glob_cmd_notify.setdefault( category, [] )
+    notify[0] = '%s - %s'%(cmd,notify[0])
+    glob_cmd_notify[category] += notify
+
+# parse opt from "grpid1,taskid,..." to lists ok/failed
+def _get_groups( opt ):
+    ok = {}
+    failed = []
+    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    for task in ar:
+        found = glob_watchers.get( task, [[None]] )[0]
+        if found[0]=='watch':
+            if found[1]>0:
+                failed.append(found[1])
+            else:
+                ok[task] = found[1]
+        else:
+            try:
+                ok[task] = abs(int(task.strip()))
+            except:
+                failed.append(task)
+    return ok, failed
+
+# find watcher and generate error notification if not found
+def _findWatcher( task, category, cmd ):
+    found = glob_watchers.get( task, [[None]] )[0]
+    if found[0] is None:
+        cmdNotifyCollect( cmd, ["unknown task '%s'" % task] )
+        return None
+    if category is not None and found[0]!=category:
+        cmdNotifyCollect( cmd, ["given task '%s' is not %s" % (task,category)] )
+        return None
+    return found
+
+# parse "+-taskid,+-taskid" command options
+def _get_tasks_op( cmd, opt, category=None ):
+    result = []
+    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    for task in ar:
+        operation = task[0]
+        who = task[1:]
+        if operation not in ['+','-']:
+            cmdNotifyCollect( cmd, ["unknown operation for '%s'" % task] )
+            continue
+
+        if who=='':
+            who = _get_default_task()
+        found = _findWatcher( who, category, cmd  )
+        if found:
+            result.append( [operation, who, found] )
+    return result
+
+# generic command processor (create/delete file)
+def _process_task( cmd, opt, pass_, prefix, category = None, op = '-' ):
+    if pass_!=0:
+        return
+    result = _get_tasks_op( cmd, opt, category )
+    if not result:
+        return
+
+    for r in result:
+        fname = os.path.join( DIR_TMP, '%s.%s' % (prefix,r[1]) )
+        if r[0]==op:
+            with open(fname,'wb') as f:
+                f.write('1')
+        else:
+            if os.path.exists(fname):
+                os.unlink(fname)
+    result = map( lambda r: '%s%s'%(r[0],r[1]),result )
+    cmdNotifyCollect( cmd, ['OK: '+ ','.join(result)] )
+
+# check file existance
+def _check( prefix, who ):
+    fname = os.path.join( DIR_TMP, '%s.%s' % (prefix,who) )
+    return os.path.exists( fname )
+
+def _get_default_task():
+    global glob_default_task
+    if 'glob_default_task' in globals():
+        return glob_default_task
+    fname = os.path.join( DIR_TMP, 'default_task' )
+    if os.path.exists(fname):
+        with open(fname,'rb') as f:
+            glob_default_task = f.read().strip()
+            return
+
+    keys = filter( lambda k: glob_watchers[k][0][0]=='backup', glob_watchers.keys() )
+    keys += filter( lambda k: glob_watchers[k][0][0]!='backup', glob_watchers.keys() )
+    if keys:
+        return keys[0]
+    return 'ABSENT'
+
+
+"""==================================================================================="""
+
+def cmd_help( cmd, opt, pass_ ):
+    if pass_!=0 or 'flag_cmd_help' in globals():
+        return
+    globals()['flag_cmd_help'] = True
+
+    cmdlst = []
+    cmdlst.append( 'vk_help' )
+    cmdlst.append( 'vk_list|vk_list_full')
+    cmdlst.append( 'vk_join|vk_leave GROUPID' )
+    cmdlst.append( 'vk_notify|vk_enable +/-task1,+/-task2,..' )
+    cmdlst.append( 'vk_store|vk_clean [msgtask]' )
+    cmdlst.append( 'vk_autoclean +/-[task]' )
+    cmdlst.append( 'vk_default task' )
+
+    cmdlst.append( 'TODO ...{+x, +hh:mm, hh:mm, dd.mm hh:mm}' )
+    cmdlst.append( 'TODO vk_restore' )
+    cmdlst.append( 'TODO vk_delete dd.mm hh:mm [- dd.mm hh:mm]' )
+    cmdlst.append( 'TODO vk_confirm confirmid' )
+    SendMsg( vk_api1, "\n".join(cmdlst) )
+
+
+def _join_leave( cmd, opt, pass_, func, name2):
+    name = cmd[3:]
+    ok, failed = _get_groups( opt )
+    for task, id_ in ok.items():
+        try:
+            func( group_id=id_ )
+            cmdNotifyCollect( cmd, ['%s %s'%(name2,task)] )
+        except Exception as e:
+            cmdNotifyCollect( cmd, ['fail to %s %s: %s'%(task,name,str(e))] )
+    if failed:
+        cmdNotifyCollect( cmd, ['fail to %s %s: unknown group(s)'%(name,','.join(failed))] )
+
+def cmd_join(  cmd, opt, pass_ ):
+    if pass_==0:
+        _join_leave(  cmd, opt, pass_, vk_api1.groups.join, 'joined to' )
+
+def cmd_leave( cmd, opt, pass_ ):
+    if pass_==2:
+        _join_leave(  cmd, opt, pass_, vk_api1.groups.leave, 'leave' )
+
+def cmd_notify( cmd, opt, pass_ ):
+    _process_task( cmd, opt, pass_, '.silent')
+
+def cmd_enable( cmd, opt, pass_ ):
+    _process_task( cmd, opt, pass_, '.disable')
+
+def cmd_autoclean( cmd, opt, pass_ ):
+    _process_task( cmd, opt, pass_, '.autoclean', category='backup', op='+')
+
+def cmd_default( cmd, opt, pass_ ):
+    if pass_!=0:
+        return
+    if not opt:
+        cmdNotifyCollect( cmd, ["no task given"] )
+
+    found = _findWatcher( opt[0], 'backup', cmd )
+    if found:
+        fname = os.path.join( DIR_TMP, 'default_task' )
+        globals()['glob_default_task'] = opt[0]
+        with open(fname,'wb') as f:
+                f.write(opt[0])
+
+
+def cmd_list( cmd, opt, pass_ ):
+    if pass_!=0:
+        return
+    keys = filter( lambda k: glob_watchers[k][0][0]!='backup', glob_watchers.keys() )
+    keys += filter( lambda k: glob_watchers[k][0][0]=='backup', glob_watchers.keys() )
+
+    lst = []
+    for k in keys:
+        v = k + ( ' -  disabled' if _check( '.disable',k ) else ' - enabled' )
+        if _check('.silent',k):
+            v+= ' silent'
+        if _check('.autoclean',k):
+            v+= ' autoclean'
+        lst.append(v)
+    if lst:
+        SendMsg( vk_api1, "\n".join([' STATUS']+lst) )
+
+def _process_cmd_taskstatus( cmd, opt, pass_, status ):
+    if pass_!=0:
+        return
+
+    global glob_backup_status
+    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    if not ar:
+        ar.append( _get_default_task() )
+    for task in ar:
+        found = _findWatcher( task, 'backup', cmd )
+        if found:
+            glob_backup_status[task]= status
+
+def cmd_store( cmd, opt, pass_ ):
+    _process_cmd_taskstatus( cmd, opt, pass_, 'store' )
+
+def cmd_clean( cmd, opt, pass_ ):
+    _process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
+
+
+""" ==================================================================== """
 
 def main():
     global DIR_MAIN, DIR_LOG, DIR_TMP
@@ -838,6 +1055,7 @@ def main():
     globals()['glob_precise'] = config.CONFIG.get('PRECISE',True)
 
     # Do Login
+    global vk_api1
     import vk.api
     vk.api.LOG_DIR = "./LOG_WATCHER"
     vk.api.LOG_FILE = '%s/vk_api.log' % vk.api.LOG_DIR
@@ -848,12 +1066,58 @@ def main():
     ##vk_api2, me2, USER_PASSWORD2 = vk_utils.VKSignInSecondary( False )
     now = time.time()
 
+    global COMMAND_USER     # who is the source of command and target for vk notify
+    COMMAND_USER =  me1
+
     # Load watchers
     with open( config.CONFIG.get('WATCHERS_PY','./vk_watchers_list.py'), 'rb') as f:
         watchers_code = f.read()#, 'utf-8')
 
     global notifications
     notifications = {}
+
+    # load commands and remember lastid
+    commands = []
+    lastidfile = os.path.join(DIR_TMP,'lastid')
+    lastid = 0
+    if os.path.isfile( lastidfile ):
+        with open( lastidfile, 'rb') as f:
+            lastid = int( '0' + f.read().strip() )
+    res = vk_api1.messages.getHistory( user_id=COMMAND_USER )
+    for r in res[u'items']:
+        if int(r[u'id'])<=lastid:
+            break
+        if r[u'body'].strip().lower().startswith(u'vk_'):
+            commands.append( r[u'body'].strip())
+    if len(res[u'items']):
+        with open( lastidfile, 'wb' ) as f:
+            f.write( u'%s' % res[u'items'][0][u'id'] )
+    commands.reverse()
+
+    global glob_cmd_notify
+    # Preprocess commands
+    if commands:
+        print "Process commands"
+        # register requested process
+        doRegistration( watchers_code )
+        # register command handlers
+        command_dict = {}
+        for n,func in globals().iteritems():
+            if n.startswith('cmd_') and callable(func):
+                command_dict[ n[4:] ] = func
+        glob_cmd_notify = {}
+        for c in commands:
+            c_ar = c.strip().split()
+            func = command_dict.get( c_ar[0][3:].lower(), None )
+            print c_ar[0], func
+            if not func:
+                cmdNotifyCollect( c_ar[0], [ u"unknown command" ] )
+            else:
+                func( c_ar[0], c_ar[1:], pass_=0 )
+        for k in sorted( glob_cmd_notify.keys() ):
+            v = '\n'.join(glob_cmd_notify[k])
+            if v:
+                SendMsg( vk_api1, v )
 
     global glob_vkapi
     glob_vkapi = vk_utils.CachedVKAPI( vk_api1 )
@@ -867,9 +1131,7 @@ def main():
         glob_vkapi.execute()
         DBG.trace('request done')
 
-    global glob_sendto_vk
     glob_vkapi = vk_api1
-    glob_sendto_vk = me1
     ExecuteNotification()
 
 
@@ -910,6 +1172,14 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
 
     if not isAllowByRate( rate, '%s.%s'%(fname, vk_id), hash( repr([to_watch,to_notify]) ) ):
         return
+    if _check( '.disable', fname ):
+        DBG.info( 'disabled %s', [fname])
+        return
+
+    notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
+    if notify_ar and _check( '.silent', fname ):
+        DBG.info( 'silent %s', [fname])
+        notify_ar = []
 
     res = {}
     for w in to_watch:
@@ -919,7 +1189,6 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
         if not callable( func ):
             print "NO '%s' HANDLER FOUND" % main
             continue
-        notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
 
         global glob_options, glob_notify, glob_fname, glob_main
         glob_options, glob_notify, glob_main = options, notify_ar, main
