@@ -1244,7 +1244,9 @@ def Run( rate, fname, cmd, to_notify ):
         request = 'default+autoclean'
         rate *= 2
 
-    if not isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
+    if not request.startswith('default'):
+        DBG.trace('enforce because of request %s', [request])
+    elif not isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
         return
     if glob_vkapi.doPrepareOnly:
         return
