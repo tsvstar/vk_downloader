@@ -847,7 +847,7 @@ def cmdNotifyCollect( cmd, notify, category = '!' ):
 def _get_groups( opt ):
     ok = {}
     failed = []
-    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    ar = filter( len, map( lambda s: s.strip(), (opt+[''])[0].split(',') ) )
     for task in ar:
         found = glob_watchers.get( task, [[None]] )[0]
         if found[0]=='watch':
@@ -876,7 +876,9 @@ def _findWatcher( task, category, cmd ):
 # parse "+-taskid,+-taskid" command options
 def _get_tasks_op( cmd, opt, category=None ):
     result = []
-    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    ar = filter( len, map( lambda s: s.strip(), (opt+[''])[0].split(',') ) )
+    if not ar:
+        cmdNotifyCollect( cmd, ["no operation for '%s'" % cmd] )
     for task in ar:
         operation = task[0]
         who = task[1:]
@@ -1023,7 +1025,7 @@ def _process_cmd_taskstatus( cmd, opt, pass_, status ):
         return
 
     global glob_backup_status
-    ar = filter( len, map( lambda s: s.strip(), opt[0].split(',') ) )
+    ar = filter( len, map( lambda s: s.strip(), (opt[0]+['']).split(',') ) )
     if not ar:
         ar.append( _get_default_task() )
     for task in ar:
