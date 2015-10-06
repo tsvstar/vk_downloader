@@ -1241,6 +1241,9 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
 def Run( rate, fname, cmd, to_notify ):
     global glob_vkapi
 
+    global  glob_fname
+    glob_fname = fname
+
     request = glob_backup_status.get(fname,'default')
     if request=='default' and _check( '.autoclean', fname ):
         request = 'default+autoclean'
