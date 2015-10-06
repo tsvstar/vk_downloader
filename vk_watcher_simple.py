@@ -1256,6 +1256,14 @@ def Run( rate, fname, cmd, to_notify ):
     if glob_vkapi.doPrepareOnly:
         return
 
+    notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
+    if notify_ar and _check( '.silent', fname ):
+        DBG.info( 'silent %s', [fname])
+        notify_ar = []
+
+    global glob_notify
+    glob_notify = notify_ar
+
     #debug
     if request!='default':
         make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
