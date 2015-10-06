@@ -10,7 +10,19 @@ import traceback, imp
 #       option everywhere: exXXX|YY| - exclude by id
 #       accumulate changes ( if same entity changed continuosly - remember values and send whole way once it will be stabilized) - ACCUMULATE_MINUTES=11
 #       postponed send (up to N changes since first change are collected) - minimize num of notification
+#           + suppressed jitter (that is more simple - if detected for something - add ./tmp/.jitter.id.fname -- and if on next request it still another - process)
 #       programmable options '@optname' (turn on/off offline for example)
+
+# autodel - twice more rare
+# incoming message - only if last unread message at least 3 minutes ago
+# fix:  wall:new_only_as_msg doesn't work
+# vk_store,vk_del
+#    cmdlst.append( 'TODO ...{+x, +hh:mm, hh:mm, dd.mm hh:mm}' )
+#    cmdlst.append( 'TODO vk_restore' )
+#    cmdlst.append( 'TODO vk_delete dd.mm hh:mm [- dd.mm hh:mm]' )
+#    cmdlst.append( 'TODO vk_confirm confirmid' )
+
+
 """
 vk_help
 vk_list                     --> task - status(active,disabled), notify(silent); options list
@@ -386,7 +398,20 @@ def make_notify( notify, logfile = main_notification_log ):
     ref = notifications.setdefault('logger',{}).setdefault(logfile,{}).setdefault(silent_flag+glob_fname,[])
     ref += notify
 
-""" ==================================================================== """
+def _get_numeric_opt( options, default = 0 ):
+    for i in options:
+        try:
+            val = int(i.strip())
+            if val>=0:
+                return val
+        except:
+            pass
+    return default
+
+
+""" ====================================================================
+                    WATCHER HANDLERS
+    ==================================================================== """
 
 def wall_handler( vk_api, vk_id, options ):
     precision = 100 if glob_precise else 75
@@ -497,9 +522,11 @@ def message_handler( vk_api, vk_id, options ):
 
     first_item = res[u'items'][0] if len(res[u'items']) else {}
     msgid = first_item.get(u'id',0)
+    date = first_item.get(u'date',0)
+    notify_after = _get_numeric_opt( options, 3 )   # in minutes
 
     was = loadfile( [ [ 0 ] ] )+[0]
-    if msgid > int(was[0][0]):
+    if msgid > int(was[0][0]) and (time.time()-date)>notify_after*60:
         save_file( [ msgid ], shortLog=True )
         if int(was[0][0]) and first_item.get(u'from_id',0)==vk_id and not first_item.get(u'read_state',1):
             make_notify( ["incoming message"], '.notificatons-messages.log' )
@@ -548,15 +575,7 @@ def online_handler( vk_api, vk_id, options ):
         return
 
     # try to find numeric option - that is value for max ignored pause of offline
-    ignore_offline_pause = 0    # in minutes
-    for i in options:
-        try:
-            val = int(i.strip())
-            if val>=0:
-                ignore_offline_pause = val
-                break
-        except:
-            pass
+    ignore_offline_pause = _get_numeric_opt( options, 0 )    # in minutes
 
     online =  res[0][u'online']
     if online:
@@ -664,7 +683,9 @@ def squeeze_online_log( ignore_offline_pause ):
     return last_online_start
 
 
-""" ==================================================================== """
+""" ====================================================================
+                        NOTIFY HANDLERS
+    ==================================================================== """
 
 def logger_notifier(  text , enforce ):
     text = text.strip()
@@ -800,7 +821,7 @@ def ExecuteNotification():
 """ ==================================================================== """
 glob_watchers = {}      # glob_watchers[taskname] = [ [type,id,extra], [type,id,extra],.. ]
 glob_cmd_notify = {}    # glob_cmd_notify[task] = [notify1, notify2]
-glob_backup_status = {} # if temporary request given - set it
+glob_backup_status = {} # glob_backup_status[task] = if temporary request given - set it
 
 # Internal function which register all handlers in glob_watchers dictionary
 def doRegistration( watchers_code ):
@@ -911,7 +932,9 @@ def _get_default_task():
     return 'ABSENT'
 
 
-"""==================================================================================="""
+"""===================================================================================
+                            VK_COMMAND HANDLERS
+   ==================================================================================="""
 
 def cmd_help( cmd, opt, pass_ ):
     if pass_!=0 or 'flag_cmd_help' in globals():
@@ -992,6 +1015,7 @@ def cmd_list( cmd, opt, pass_ ):
             v+= ' autoclean'
         lst.append(v)
     if lst:
+        lst.append( "DEFAULT: %s"%_get_default_task() )
         SendMsg( vk_api1, "\n".join([' STATUS']+lst) )
 
 def _process_cmd_taskstatus( cmd, opt, pass_, status ):
@@ -1011,6 +1035,9 @@ def cmd_store( cmd, opt, pass_ ):
     _process_cmd_taskstatus( cmd, opt, pass_, 'store' )
 
 def cmd_clean( cmd, opt, pass_ ):
+    _process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
+
+def cmd_del( cmd, opt, pass_ ):
     _process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
 
 
@@ -1212,10 +1239,32 @@ def Watch( rate, vk_id, fname, to_watch, to_notify ):
 def Run( rate, fname, cmd, to_notify ):
     global glob_vkapi
 
+    request = glob_backup_status.get(fname,'default')
+    if request=='default' and _check( '.autoclean', fname ):
+        request = 'default+autoclean'
+        rate *= 2
+
     if not isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
         return
     if glob_vkapi.doPrepareOnly:
         return
+
+    #debug
+    if request!='default':
+        make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
+
+    """
+    if cmd[0]=='message' and len(cmd)>=4:
+        if request=='default+autoclean':
+            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True"] # "--DEL_ENFORCED=True", - no del enforced because could del private video
+            cmd[3]='1'
+        if request=='store':
+            cmd[3]='-1'
+        elif request=='clean':
+            cmd[3]='1'
+
+
+    """
 
     stdout,stderr = RunMainScript( cmd )
     res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
@@ -1228,7 +1277,7 @@ def Run( rate, fname, cmd, to_notify ):
     if cmd[0]!='message':
         return
 
-    msgid = 'default'   # -- this is for todo (is because of vk command received)
+    #msgid = 'default'   # -- this is for todo (is because of vk command received)
 
     IF_DEL = int(cmd[3])
     # case: default regular save (store msg with postponed del) - do not notify because this is regular thing. Check result in the log
@@ -1236,7 +1285,7 @@ def Run( rate, fname, cmd, to_notify ):
         return
 
     # case: autosave on - do not notify if nothing was stored/deleted
-    if ( IF_DEL==1 and msgid=='default' and stdout.find('. *0')>=0 and stdout.find('), -0(')>=0 ):
+    if ( IF_DEL==1 and request.startswith('default') and stdout.find('. *0')>=0 and stdout.find('), -0(')>=0 ):
         return
 
     make_notify( [stdout + (u'\nERR: %s'%stderr if stderr else '')], '.notificatons-messagebackup.log')
