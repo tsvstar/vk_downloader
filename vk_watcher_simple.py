@@ -1025,7 +1025,7 @@ def _process_cmd_taskstatus( cmd, opt, pass_, status ):
         return
 
     global glob_backup_status
-    ar = filter( len, map( lambda s: s.strip(), (opt[0]+['']).split(',') ) )
+    ar = filter( len, map( lambda s: s.strip(), (opt+[''])[0].split(',') ) )
     if not ar:
         ar.append( _get_default_task() )
     for task in ar:
