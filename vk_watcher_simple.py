@@ -314,23 +314,27 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
 
     if not glob_jitter_detected:
         if isSuspectJitter():
+            TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
             # 1. First suspection of jitter
             if not _check( '', jitter_fname):
                 # a) 1pass (no file mark exists from previous cron call) - raise local flag to do immediate re-request (supress most of them)
                 glob_jitter_detected = True
-                DBG.info('suspect jitter for %s.%s', [glob_fname, glob_main])
-                TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
+                DBG.info('suspect jitter for %s.%s - 1pass', [glob_fname, glob_main])
                 return True
             else:
+                DBG.info('suspect jitter for %s.%s - 3pass. that is not a jitter', [glob_fname, glob_main])
                 # b) 3rd pass (previous cron call also suspected jitter), so this is real change
                 os.unlink( os.path.join( DIR_TMP, jitter_fname ) )
         else:
             # There is not suspected changes found, delete file mark
             if _check( '', jitter_fname ):
+                DBG.info('clean %s. looks like that was a jitter' % jitter_fname )
                 os.unlink( os.path.join( DIR_TMP, jitter_fname ) )
     else:
+        TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
         # 2. Check for jitter after immediate re-request (2nd pass)
         if isSuspectJitter():
+            DBG.info('suspect jitter for %s.%s - 2pass', [glob_fname, glob_main])
             # changes are still here. probably it is real changes. lets wait one more tick
             # add file to remember that and skip checks/write new state
             with open( os.path.join(DIR_TMP,jitter_fname), 'wb' ) as f:
@@ -338,7 +342,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
             return False
         else:
             # no suspected changes found, so that was jitter. now we have normal values
-            pass
+            DBG.info('%s: that was jitter. 2nd pass' % jitter_fname )
 
 
     notify = []
@@ -716,6 +720,7 @@ def squeeze_online_log( ignore_offline_pause ):
 
 class Notifiers(object):
     def logger_notifier( self, text , enforce ):
+        print 'logger',text
         text = text.strip()
         if not text:
     		return False
@@ -816,41 +821,45 @@ def ExecuteNotification():
     global notifications
     DBG.trace('ExecuteNotification()')
     for notify_type, ar1 in notifications.items():
-        func = globals().get( '%s_notifier' % notify_type, None )
+        func = getattr( Notifiers, '%s_notifier' % notify_type, None )
         if not callable( func ):
             continue
         for queue, ar2 in ar1.items():
             collected_notify=[]
-            for objid, ar_notifies in ar2.items():
-                DBG.trace( 'do notify [%s][%s][%s] -- list of %d', [notify_type,queue,objid, len(ar_notifies)] )
-                if queue=='!':
-                    for notify in ar_notifies:
-                        text = u'%s: %s' % ( objid.upper(), notify )
-                        DBG.trace("INDIVIDUAL NOTIFY: %s", [text] )
-                        func( text, enforce = True )
-                elif len(ar_notifies)==0:
-                    continue
-                elif len(ar_notifies)==1:
-                    collected_notify.append( u'%s: %s' % ( objid.upper(), ar_notifies[0] ) )
-                else:
-                    collected_notify.append( u'%s:\n%s' % ( objid.upper(), '\n'.join(ar_notifies) ) )
-            global glob_queue
-            glob_queue = queue
             try:
+                for objid, ar_notifies in ar2.items():
+                    DBG.trace( 'do notify [%s][%s][%s] -- list of %d', [notify_type,queue,objid, len(ar_notifies)] )
+                    if queue=='!':
+                        ar_notifies = notifications[notify_type][queue][objid]
+                        while ar_notifies:
+                            notify = ar_notifies.pop(0)
+                            text = u'%s: %s' % ( objid.upper(), notify )
+                            DBG.trace("INDIVIDUAL NOTIFY: %s", [text] )
+                            func( Notifiers(), text, enforce = True )
+                    elif len(ar_notifies)==0:
+                        continue
+                    elif len(ar_notifies)==1:
+                        collected_notify.append( u'%s: %s' % ( objid.upper(), ar_notifies[0] ) )
+                    else:
+                        collected_notify.append( u'%s:\n%s' % ( objid.upper(), '\n'.join(ar_notifies) ) )
+                global glob_queue
+                glob_queue = queue
                 while collected_notify:
                     text = '\n=====\n'.join(collected_notify)
                     DBG.trace("TRY TO COLLECTED NOTIFY: %s", [text] )
-                    res = func( text, enforce = False)
+                    res = func( Notifiers(), text, enforce = False)
                     if res:
                         break
                     DBG.trace("FAIL DUE TO LENGTH - TRY FIRST ELEM ONLY")
                     func( collected_notify.pop(0), enforce = True )
                 del notifications[notify_type][queue]
-            except:
+            except Exception as e:
+                print e
+                print traceback.print_exception
                 pass
 
     r = repr(notifications)
-    with open( os.path.join(DIR_TMP,'.postponed-notifications') ) as f:
+    with open( os.path.join(DIR_TMP,'.postponed-notifications'), 'wb' ) as f:
         f.write(r)
 
     if notifications:
@@ -953,7 +962,8 @@ def _process_task( cmd, opt, pass_, prefix, category = None, op = '-' ):
 
 # check file existance
 def _check( prefix, who ):
-    fname = os.path.join( DIR_TMP, '%s.%s' % (prefix,who) )
+    fname = os.path.join( DIR_TMP,  '%s.%s' % (prefix,who) if prefix else who )
+    #DBG.trace('_check(%s) = %s', [fname,os.path.exists( fname )])
     return os.path.exists( fname )
 
 def _get_default_task():
@@ -1178,18 +1188,21 @@ def main():
         doRegistration( watchers_code )
         # register command handlers
         command_dict = {}
-        for n,func in globals().iteritems():
-            if n.startswith('cmd_') and callable(func):
-                command_dict[ n[4:] ] = func
+        for n in dir(CMD):
+            if n.startswith('cmd_'):
+                func = getattr(CMD,n)
+                if callable(func):
+                    command_dict[ n[4:] ] = func
         glob_cmd_notify = {}
         for c in commands:
             c_ar = c.strip().split()
             func = command_dict.get( c_ar[0][3:].lower(), None )
             print c_ar[0], func
+            DBG.info("CMD: %s", [ c_ar[0] ] )
             if not func:
                 cmdNotifyCollect( c_ar[0], [ u"unknown command" ] )
             else:
-                func( c_ar[0], c_ar[1:], pass_=0 )
+                func( CMD(), c_ar[0], c_ar[1:], pass_=0 )
         for k in sorted( glob_cmd_notify.keys() ):
             v = '\n'.join(glob_cmd_notify[k])
             if v:
@@ -1312,12 +1325,12 @@ def Run( rate, fname, cmd, to_notify ):
     glob_notify = notify_ar
 
     #debug
-    if request!='default':
-        make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
+    #if request!='default':
+    #    make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
 
     if cmd[0]=='message' and len(cmd)>=4:
         if request=='default+autoclean':
-            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True", "--DEL_ENFORCED=True"] - no del enforced because could del private video
+            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True", "--DEL_ENFORCED=True"] #- no del enforced because could del private video
             cmd[3]='1'
         if request=='store':
             cmd[3]='-1'
