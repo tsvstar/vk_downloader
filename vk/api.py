@@ -122,7 +122,7 @@ class APISession(object):
         self.api_version = api_version
         self._default_timeout = timeout
 
-        self.repeat_on_timeout = 1              # how many times repeat on network timeout safe commands before raise exception
+        self.repeat_on_timeout = 2              # how many times repeat on network timeout safe commands before raise exception
         self.pause = 0.35                       # pause between requests
         self.pause_after_error = self.pause     # pause after 'too many request error'
         self.show_blink = False                 # should be displayed each api request

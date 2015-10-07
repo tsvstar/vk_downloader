@@ -266,7 +266,6 @@ def TRACE_AR( name, ar ):
         DBG.trace( 'name=%s (%s)\n%s', [ name, type(ar), ar ])
     #    print
 
-
 # FIND OUT WHAT WAS CHANGED IN ITEMS LIST
 #       items - current items list (always start from [overall_count])
 #       max_num - after this limit do not check for delete (so if N new were added, then last N will go away from list if limited)
@@ -289,13 +288,11 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
     ##TRACE_AR('was_dict',was_dict)
     ##TRACE_AR('now_dict',now_dict)
 
-    global glob_jitter_detected
-
-    if not glob_jitter_detected:
-        # Check for possible jitter
+    # Check for possible jitter
+    def isSuspectJitter():
         if int(was[0][0]) > int(items[0][0]):
-            glob_jitter_detected = True
             DBG.trace('count %s->%s', [was[0], items[0]])
+            return True
         else:
             for i in was:
                 if len(i)<2:
@@ -307,12 +304,42 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
                     old_val = str(i[idx+1])
                     new_val = str( now_dict[ str(i[0]) ][idx+1] )
                     if old_val not in ['',0,'0','?'] and new_val in ['',0,'0']:
-                        glob_jitter_detected = True
                         DBG.trace("change %s: %s->%s\n%s\n->\n%s", [extra_fields_names[idx],old_val,new_val, i, now_dict[ str(i[0]) ]])
-        if glob_jitter_detected:
-            DBG.info('suspect jitter for %s.%s', [glob_fname, glob_main])
-            TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
-            return True
+                        return True
+        return False
+
+    global glob_jitter_detected
+    global glob_fname, glob_main
+    jitter_fname = '.jitter~%s.%s'%(glob_fname,glob_main)
+
+    if not glob_jitter_detected:
+        if isSuspectJitter():
+            # 1. First suspection of jitter
+            if not _check( '', jitter_fname):
+                # a) 1pass (no file mark exists from previous cron call) - raise local flag to do immediate re-request (supress most of them)
+                glob_jitter_detected = True
+                DBG.info('suspect jitter for %s.%s', [glob_fname, glob_main])
+                TRACE_AR( 'SUSPECT JITTER. This is correspondend vk_response', items )
+                return True
+            else:
+                # b) 3rd pass (previous cron call also suspected jitter), so this is real change
+                os.unlink( os.path.join( DIR_TMP, jitter_fname ) )
+        else:
+            # There is not suspected changes found, delete file mark
+            if _check( '', jitter_fname ):
+                os.unlink( os.path.join( DIR_TMP, jitter_fname ) )
+    else:
+        # 2. Check for jitter after immediate re-request (2nd pass)
+        if isSuspectJitter():
+            # changes are still here. probably it is real changes. lets wait one more tick
+            # add file to remember that and skip checks/write new state
+            with open( os.path.join(DIR_TMP,jitter_fname), 'wb' ) as f:
+                f.write('1')
+            return False
+        else:
+            # no suspected changes found, so that was jitter. now we have normal values
+            pass
+
 
     notify = []
     enforceSave = False
@@ -687,54 +714,67 @@ def squeeze_online_log( ignore_offline_pause ):
                         NOTIFY HANDLERS
     ==================================================================== """
 
-def logger_notifier(  text , enforce ):
-    text = text.strip()
-    if not text:
-		return False
+class Notifiers(object):
+    def logger_notifier( self, text , enforce ):
+        text = text.strip()
+        if not text:
+    		return False
 
-    global DIR_MAIN
-    fpath = os.path.join( DIR_MAIN, glob_queue)
-    with open( fpath, 'ab' ) as f:
-        t = time.strftime("%d.%m.%y %H:%M", time.localtime())
-        f.write( util.str_encode( u'*** %s ***\n%s\n' % ( t, text ), 'utf-8' ) )
-    return True
+        global DIR_MAIN
+        fpath = os.path.join( DIR_MAIN, glob_queue)
+        with open( fpath, 'ab' ) as f:
+            t = time.strftime("%d.%m.%y %H:%M", time.localtime())
+            f.write( util.str_encode( u'*** %s ***\n%s\n' % ( t, text ), 'utf-8' ) )
+        return True
 
-def vk_notifier( text , enforce ):
-    text = text.strip()
-    if not enforce and len(text)>2000:
-        return False
-    if not text:
-		return False
+    def vk_notifier( self, text , enforce ):
+        text = text.strip()
+        if not enforce and len(text)>2000:
+            return False
+        if not text:
+    		return False
 
-    #global glob_vkapi, glob_sendto_vk
-    #glob_vkapi.messages.send( user_id=glob_sendto_vk, message=text )
-    SendMsg( glob_vkapi, text )
-    return True
+        #global glob_vkapi, glob_sendto_vk
+        #glob_vkapi.messages.send( user_id=glob_sendto_vk, message=text )
+        SendMsg( glob_vkapi, text )
+        return True
 
-def jeapie_notifier( text, enforce ):
-    text = text.strip()
-    if not enforce and len(text)>2000:
-        return False
-    if not text:
-        return False
-    DBG.trace("jeapie: %s", [ text ] )
+    def jeapie_notifier( self, text, enforce ):
+        text = text.strip()
+        if not enforce and len(text)>2000:
+            return False
+        if not text:
+            return False
+        DBG.trace("jeapie: %s", [ text ] )
 
-    import httplib, urllib
-    global conn
-    try:
-        conn = httplib.HTTPSConnection("api.jeapie.com:443")
-        conn.request("POST", "/v2/personal/send/message.json",
-               urllib.urlencode({
-               "token": config.CONFIG.get('TOKEN_JEAPIE',''),
-               "message": text,
-               }), { "Content-type": "application/x-www-form-urlencoded" })
-        ##print text
-        print "RESPONSE ", conn.getresponse().status
-    except Exception as e:
-        print "EXCEPTION: (%s)" % e
-        return False
+        import httplib, urllib
+        global conn
+        try:
+            conn = httplib.HTTPSConnection("api.jeapie.com:443")
+            conn.request("POST", "/v2/personal/send/message.json",
+                   urllib.urlencode({
+                   "token": config.CONFIG.get('TOKEN_JEAPIE',''),
+                   "message": text,
+                   }), { "Content-type": "application/x-www-form-urlencoded" })
+            ##print text
+            print "RESPONSE ", conn.getresponse().status
+        except Exception as e:
+            print "EXCEPTION: (%s)" % e
+            return False
+        return True
 
-    return True
+    #def pushbullet_notifier( text, enforce ):
+    def bullet_notifier( self, text, enforce ):
+        text = text.strip()
+        if not enforce and len(text)>2000:
+            return False
+    	if not text:
+    		return False
+
+        global bullet
+        devices = bullet._request("GET", "/devices")["devices"]
+        bullet.pushNote( devices[0]['iden'], 'VK', u'%s: %s' % ( time.strftime("%H:%M",time.localtime()), text ) )
+        return True
 
 # short class based on https://github.com/Azelphur/pyPushBullet
 class PushBullet(object):
@@ -771,29 +811,17 @@ class PushBullet(object):
         data[recipient_type] = recipient
         return self._request("POST", "/pushes", data)
 
-#def pushbullet_notifier( text, enforce ):
-def bullet_notifier( text, enforce ):
-    text = text.strip()
-    if not enforce and len(text)>2000:
-        return False
-	if not text:
-		return False
-
-    devices = bullet._request("GET", "/devices")["devices"]
-    bullet.pushNote( devices[0]['iden'], 'VK', u'%s: %s' % ( time.strftime("%H:%M",time.localtime()), text ) )
-    return True
-
 
 def ExecuteNotification():
     global notifications
     DBG.trace('ExecuteNotification()')
-    for notify_type, ar1 in notifications.iteritems():
+    for notify_type, ar1 in notifications.items():
         func = globals().get( '%s_notifier' % notify_type, None )
         if not callable( func ):
             continue
-        for queue, ar2 in ar1.iteritems():
+        for queue, ar2 in ar1.items():
             collected_notify=[]
-            for objid, ar_notifies in ar2.iteritems():
+            for objid, ar_notifies in ar2.items():
                 DBG.trace( 'do notify [%s][%s][%s] -- list of %d', [notify_type,queue,objid, len(ar_notifies)] )
                 if queue=='!':
                     for notify in ar_notifies:
@@ -808,14 +836,25 @@ def ExecuteNotification():
                     collected_notify.append( u'%s:\n%s' % ( objid.upper(), '\n'.join(ar_notifies) ) )
             global glob_queue
             glob_queue = queue
-            while collected_notify:
-                text = '\n=====\n'.join(collected_notify)
-                DBG.trace("TRY TO COLLECTED NOTIFY: %s", [text] )
-                res = func( text, enforce = False)
-                if res:
-                    break
-                DBG.trace("FAIL DUE TO LENGTH - TRY FIRST ELEM ONLY")
-                func( collected_notify.pop(0), enforce = True )
+            try:
+                while collected_notify:
+                    text = '\n=====\n'.join(collected_notify)
+                    DBG.trace("TRY TO COLLECTED NOTIFY: %s", [text] )
+                    res = func( text, enforce = False)
+                    if res:
+                        break
+                    DBG.trace("FAIL DUE TO LENGTH - TRY FIRST ELEM ONLY")
+                    func( collected_notify.pop(0), enforce = True )
+                del notifications[notify_type][queue]
+            except:
+                pass
+
+    r = repr(notifications)
+    with open( os.path.join(DIR_TMP,'.postponed-notifications') ) as f:
+        f.write(r)
+
+    if notifications:
+        DBG.trace( 'unexecuted notifications: %s', [r] )
 
 
 """ ==================================================================== """
@@ -938,109 +977,109 @@ def _get_default_task():
                             VK_COMMAND HANDLERS
    ==================================================================================="""
 
-def cmd_help( cmd, opt, pass_ ):
-    if pass_!=0 or 'flag_cmd_help' in globals():
-        return
-    globals()['flag_cmd_help'] = True
+class CMD(object):
+    def cmd_help( self, cmd, opt, pass_ ):
+        if pass_!=0 or 'flag_cmd_help' in globals():
+            return
+        globals()['flag_cmd_help'] = True
 
-    cmdlst = []
-    cmdlst.append( 'vk_help' )
-    cmdlst.append( 'vk_list|vk_list_full')
-    cmdlst.append( 'vk_join|vk_leave GROUPID' )
-    cmdlst.append( 'vk_notify|vk_enable +/-task1,+/-task2,..' )
-    cmdlst.append( 'vk_store|vk_clean [msgtask]' )
-    cmdlst.append( 'vk_autoclean +/-[task]' )
-    cmdlst.append( 'vk_default task' )
+        cmdlst = []
+        cmdlst.append( 'vk_help' )
+        cmdlst.append( 'vk_list|vk_list_full')
+        cmdlst.append( 'vk_join|vk_leave GROUPID' )
+        cmdlst.append( 'vk_notify|vk_enable +/-task1,+/-task2,..' )
+        cmdlst.append( 'vk_store|vk_clean [msgtask]' )
+        cmdlst.append( 'vk_autoclean +/-[task]' )
+        cmdlst.append( 'vk_default task' )
 
-    cmdlst.append( 'TODO ...{+x, +hh:mm, hh:mm, dd.mm hh:mm}' )
-    cmdlst.append( 'TODO vk_restore' )
-    cmdlst.append( 'TODO vk_delete dd.mm hh:mm [- dd.mm hh:mm]' )
-    cmdlst.append( 'TODO vk_confirm confirmid' )
-    SendMsg( vk_api1, "\n".join(cmdlst) )
+        cmdlst.append( 'TODO ...{+x, +hh:mm, hh:mm, dd.mm hh:mm}' )
+        cmdlst.append( 'TODO vk_restore' )
+        cmdlst.append( 'TODO vk_delete dd.mm hh:mm [- dd.mm hh:mm]' )
+        cmdlst.append( 'TODO vk_confirm confirmid' )
+        SendMsg( vk_api1, "\n".join(cmdlst) )
 
+    def _join_leave( self, cmd, opt, pass_, func, name2):
+        name = cmd[3:]
+        ok, failed = _get_groups( opt )
+        for task, id_ in ok.items():
+            try:
+                func( group_id=id_ )
+                cmdNotifyCollect( cmd, ['%s %s'%(name2,task)] )
+            except Exception as e:
+                cmdNotifyCollect( cmd, ['fail to %s %s: %s'%(task,name,str(e))] )
+        if failed:
+            cmdNotifyCollect( cmd, ['fail to %s %s: unknown group(s)'%(name,','.join(failed))] )
 
-def _join_leave( cmd, opt, pass_, func, name2):
-    name = cmd[3:]
-    ok, failed = _get_groups( opt )
-    for task, id_ in ok.items():
-        try:
-            func( group_id=id_ )
-            cmdNotifyCollect( cmd, ['%s %s'%(name2,task)] )
-        except Exception as e:
-            cmdNotifyCollect( cmd, ['fail to %s %s: %s'%(task,name,str(e))] )
-    if failed:
-        cmdNotifyCollect( cmd, ['fail to %s %s: unknown group(s)'%(name,','.join(failed))] )
+    def cmd_join(  self, cmd, opt, pass_ ):
+        if pass_==0:
+            self._join_leave(  cmd, opt, pass_, vk_api1.groups.join, 'joined to' )
 
-def cmd_join(  cmd, opt, pass_ ):
-    if pass_==0:
-        _join_leave(  cmd, opt, pass_, vk_api1.groups.join, 'joined to' )
+    def cmd_leave( self, cmd, opt, pass_ ):
+        if pass_==2:
+            self._join_leave(  cmd, opt, pass_, vk_api1.groups.leave, 'leave' )
 
-def cmd_leave( cmd, opt, pass_ ):
-    if pass_==2:
-        _join_leave(  cmd, opt, pass_, vk_api1.groups.leave, 'leave' )
+    def cmd_notify( self, cmd, opt, pass_ ):
+        self._process_task( cmd, opt, pass_, '.silent')
 
-def cmd_notify( cmd, opt, pass_ ):
-    _process_task( cmd, opt, pass_, '.silent')
+    def cmd_enable( self, cmd, opt, pass_ ):
+        self._process_task( cmd, opt, pass_, '.disable')
 
-def cmd_enable( cmd, opt, pass_ ):
-    _process_task( cmd, opt, pass_, '.disable')
+    def cmd_autoclean( self, cmd, opt, pass_ ):
+        self._process_task( cmd, opt, pass_, '.autoclean', category='backup', op='+')
 
-def cmd_autoclean( cmd, opt, pass_ ):
-    _process_task( cmd, opt, pass_, '.autoclean', category='backup', op='+')
+    def cmd_default( self, cmd, opt, pass_ ):
+        if pass_!=0:
+            return
+        if not opt:
+            cmdNotifyCollect( cmd, ["no task given"] )
 
-def cmd_default( cmd, opt, pass_ ):
-    if pass_!=0:
-        return
-    if not opt:
-        cmdNotifyCollect( cmd, ["no task given"] )
-
-    found = _findWatcher( opt[0], 'backup', cmd )
-    if found:
-        fname = os.path.join( DIR_TMP, 'default_task' )
-        globals()['glob_default_task'] = opt[0]
-        with open(fname,'wb') as f:
-                f.write(opt[0])
-
-
-def cmd_list( cmd, opt, pass_ ):
-    if pass_!=0:
-        return
-    keys = filter( lambda k: glob_watchers[k][0][0]!='backup', glob_watchers.keys() )
-    keys += filter( lambda k: glob_watchers[k][0][0]=='backup', glob_watchers.keys() )
-
-    lst = []
-    for k in keys:
-        v = k + ( ' -  disabled' if _check( '.disable',k ) else ' - enabled' )
-        if _check('.silent',k):
-            v+= ' silent'
-        if _check('.autoclean',k):
-            v+= ' autoclean'
-        lst.append(v)
-    if lst:
-        lst.append( "DEFAULT: %s"%_get_default_task() )
-        SendMsg( vk_api1, "\n".join([' STATUS']+lst) )
-
-def _process_cmd_taskstatus( cmd, opt, pass_, status ):
-    if pass_!=0:
-        return
-
-    global glob_backup_status
-    ar = filter( len, map( lambda s: s.strip(), (opt+[''])[0].split(',') ) )
-    if not ar:
-        ar.append( _get_default_task() )
-    for task in ar:
-        found = _findWatcher( task, 'backup', cmd )
+        found = _findWatcher( opt[0], 'backup', cmd )
         if found:
-            glob_backup_status[task]= status
+            fname = os.path.join( DIR_TMP, 'default_task' )
+            globals()['glob_default_task'] = opt[0]
+            with open(fname,'wb') as f:
+                    f.write(opt[0])
 
-def cmd_store( cmd, opt, pass_ ):
-    _process_cmd_taskstatus( cmd, opt, pass_, 'store' )
 
-def cmd_clean( cmd, opt, pass_ ):
-    _process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
+    def cmd_list( self, cmd, opt, pass_ ):
+        if pass_!=0:
+            return
+        keys = filter( lambda k: glob_watchers[k][0][0]!='backup', glob_watchers.keys() )
+        keys += filter( lambda k: glob_watchers[k][0][0]=='backup', glob_watchers.keys() )
 
-def cmd_del( cmd, opt, pass_ ):
-    _process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
+        lst = []
+        for k in keys:
+            v = k + ( ' -  disabled' if _check( '.disable',k ) else ' - enabled' )
+            if _check('.silent',k):
+                v+= ' silent'
+            if _check('.autoclean',k):
+                v+= ' autoclean'
+            lst.append(v)
+        if lst:
+            lst.append( "DEFAULT: %s"%_get_default_task() )
+            SendMsg( vk_api1, "\n".join([' STATUS']+lst) )
+
+    def _process_cmd_taskstatus( self, cmd, opt, pass_, status ):
+        if pass_!=0:
+            return
+
+        global glob_backup_status
+        ar = filter( len, map( lambda s: s.strip(), (opt+[''])[0].split(',') ) )
+        if not ar:
+            ar.append( _get_default_task() )
+        for task in ar:
+            found = _findWatcher( task, 'backup', cmd )
+            if found:
+                glob_backup_status[task]= status
+
+    def cmd_store( self, cmd, opt, pass_ ):
+        self._process_cmd_taskstatus( cmd, opt, pass_, 'store' )
+
+    def cmd_clean( self, cmd, opt, pass_ ):
+        self._process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
+
+    def cmd_del( self, cmd, opt, pass_ ):
+        self._process_cmd_taskstatus( cmd, opt, pass_, 'clean' )
 
 
 """ ==================================================================== """
@@ -1077,6 +1116,9 @@ def main():
     if not config.CONFIG.get('ENFORCE',0):
         AddLockFile( timeout=55 )
 
+    global notifications
+    notifications = {}
+
     # Initialize push services token
     global bullet
     bullet = PushBullet( config.CONFIG.get('TOKEN_PUSHBULLET','') )
@@ -1102,8 +1144,13 @@ def main():
     with open( config.CONFIG.get('WATCHERS_PY','./vk_watchers_list.py'), 'rb') as f:
         watchers_code = f.read()#, 'utf-8')
 
-    global notifications
-    notifications = {}
+    try:
+        f = os.path.join(DIR_TMP,'.postponed-notifications')
+        if os.path.exists( f ):
+            with open( f, 'rb') as f:
+                 notifications = eval( f.read() )
+    except Exception as e:
+        DBG.info('fail to load postponed notifications: %s',[str(e)])
 
     # load commands and remember lastid
     commands = []
@@ -1268,18 +1315,15 @@ def Run( rate, fname, cmd, to_notify ):
     if request!='default':
         make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
 
-    """
     if cmd[0]=='message' and len(cmd)>=4:
         if request=='default+autoclean':
-            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True"] # "--DEL_ENFORCED=True", - no del enforced because could del private video
+            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True", "--DEL_ENFORCED=True"] - no del enforced because could del private video
             cmd[3]='1'
         if request=='store':
             cmd[3]='-1'
         elif request=='clean':
             cmd[3]='1'
-
-
-    """
+            cmd+=["--KEEP_LAST_SECONDS=15", "--NOT_KEEP_IF_MINE=True"]
 
     stdout,stderr = RunMainScript( cmd )
     res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
@@ -1309,7 +1353,7 @@ def Run( rate, fname, cmd, to_notify ):
 def new_dbg_important( self, *kw, **kww ):
     old_dbg_important( *kw,**kww )
     try:
-        bullet_notifier( util.unicformat(*kw,**kww), enforce = True )
+        Notifiers.bullet_notifier( util.unicformat(*kw,**kww), enforce = True )
     except Exception as e:
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
         old_dbg_important( 'FAIL TO notify DBG.important -- EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
@@ -1324,9 +1368,10 @@ if __name__ == '__main__':
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
         DBG.important('EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
                             '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
-        for func in [bullet_notifier, logger_notifier ]:
+        for func in [Notifiers.bullet_notifier, Notifiers.logger_notifier ]:
             glob_queue = main_notification_log
-            func( 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
+            func( Notifiers(), 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
+        ExecuteNotification()
         util.say_cp866( unicode(e) )
         raise
 

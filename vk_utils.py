@@ -29,7 +29,7 @@ import config, tsv_utils as util
 # Cache of secondary login
 secondary = { 'vk_api': None, 'me': None, 'USER_PASSWORD': '' }
 
-TIMEOUT = 5
+TIMEOUT = 6
 
 """
 ===============================================
