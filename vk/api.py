@@ -159,7 +159,7 @@ class APISession(object):
 
         session = requests.Session()
 
-        response = session.get('https://vk.com/')
+        response = session.get('https://m.vk.com/')
 
         # Login
         login_data = {
@@ -170,18 +170,31 @@ class APISession(object):
             'lg_h': search_re(RE_LOGIN_HASH, response.text)	##
         }
 
-        response = session.post('https://login.vk.com', login_data)
+        login_form_action = re.findall(r'<form ?.* action="(.+)"', response.text)
+        if not login_form_action:
+            raise VkAuthorizationError('vk.com changed login flow')
 
-        if 'remixsid' in session.cookies:
+        login_form_data = {
+            'email': self.user_login,
+            'pass': self.user_password,
+        }
+        SayToLog('POST %s' % login_form_action[0])
+        response = session.post(login_form_action[0], login_form_data)
+        SayToLog('%s - %s'% ( login_form_action[0], response.status_code))
+        SayToLog('Cookies %s' % session.cookies)
+        SayToLog('Login response url %s' % response.url)
+        if 'remixsid' in session.cookies or 'remixsid6' in session.cookies:
             pass
         elif 'sid=' in response.url:
+            #self.captcha_is_needed(response.text, session)
             raise VkAuthorizationError('Authorization error (captcha)')
+        elif 'act=authcheck' in response.url:
+            self.auth_code_is_needed( response.text, session )
         elif 'security_check' in response.url:
+            #self.phone_number_is_needed(response.text, session)
             raise VkAuthorizationError('Authorization error (phone number is needed)')
-        elif 'm=1' in response.url:
-            raise VkAuthorizationError('Authorization error (bad password)')
         else:
-            raise VkAuthorizationError('Unknown authorization error')
+            raise VkAuthorizationError('Authorization error (bad password)')
 
         # OAuth2
         oauth_data = {
@@ -342,6 +355,34 @@ class APISession(object):
         Reload this in child
         """
         raise VkAPIMethodError(error_data)
+
+    @staticmethod
+    def get_auth_check_code():
+        while True:
+            try:
+                code = raw_input('Enter 2nd factor:').strip()
+                v = int(code)
+                return v
+            except ValueError as e:
+                print "Expect integer value. %s", str(e)
+
+    def auth_code_is_needed(self, html, session):
+        SayToLog( 'User enabled 2 factors authorization. Auth check code is needed' )
+        auth_hash = re.search(r'action="/login\?act=authcheck_code&hash=([0-9a-z_]+)"', html).group(1)
+        print('hash %s', auth_hash)
+        code_data = {
+            'code': self.get_auth_check_code(),
+            ##'_ajax': '1',
+            'remember': '1'
+        }
+        params = {
+            'act': 'authcheck_code',
+            'hash': auth_hash,
+        }
+        SayToLog('POST https://m.vk.com/login %s' % params)
+        response = session.post('https://m.vk.com/login', params=params, data=code_data)
+        SayToLog('%s - %s' % ( response.request.url, response.status_code))
+        return
 
 
 class APIMethod(object):
