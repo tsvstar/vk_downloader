@@ -778,7 +778,8 @@ class Notifiers(object):
 
         global bullet
         devices = bullet._request("GET", "/devices")["devices"]
-        bullet.pushNote( devices[0]['iden'], 'VK', u'%s: %s' % ( time.strftime("%H:%M",time.localtime()), text ) )
+        if devices:
+            bullet.pushNote( devices[0]['iden'], 'VK', u'%s: %s' % ( time.strftime("%H:%M",time.localtime()), text ) )
         return True
 
 # short class based on https://github.com/Azelphur/pyPushBullet
@@ -791,8 +792,12 @@ class PushBullet(object):
     def __init__( self, apiKey ):
         import requests.auth
         self.apiKey = requests.auth.HTTPBasicAuth(apiKey, "")
+        self.validkey = apiKey.strip()
 
     def _request(self, method, url, postdata=None, params=None, files=None):
+        if not self.validkey:
+            print "unable to pushbullet - empty apikey"
+            return { 'devices':''}
         headers = {"Accept": "application/json",
                 "Content-Type": "application/json",
                 "User-Agent": "pyPushBullet"}
@@ -1029,13 +1034,13 @@ class CMD(object):
             self._join_leave(  cmd, opt, pass_, vk_api1.groups.leave, 'leave' )
 
     def cmd_notify( self, cmd, opt, pass_ ):
-        self._process_task( cmd, opt, pass_, '.silent')
+        _process_task( cmd, opt, pass_, '.silent')
 
     def cmd_enable( self, cmd, opt, pass_ ):
-        self._process_task( cmd, opt, pass_, '.disable')
+        _process_task( cmd, opt, pass_, '.disable')
 
     def cmd_autoclean( self, cmd, opt, pass_ ):
-        self._process_task( cmd, opt, pass_, '.autoclean', category='backup', op='+')
+        _process_task( cmd, opt, pass_, '.autoclean', category='backup', op='+')
 
     def cmd_default( self, cmd, opt, pass_ ):
         if pass_!=0:
@@ -1109,6 +1114,12 @@ def main():
 
     LoadConfig()
     config.InitConfigFromARGV( startsfrom = 1 )
+
+    # Initialize push services token
+    global bullet
+    bullet = PushBullet( config.CONFIG.get('TOKEN_PUSHBULLET','') )
+    globals()['glob_precise'] = config.CONFIG.get('PRECISE',True)
+
     USER_LOGIN = config.CONFIG['USER_LOGIN'].strip()
     if not USER_LOGIN:
         raise util.FatalError('Unknown USER_LOGIN')
@@ -1128,12 +1139,6 @@ def main():
 
     global notifications
     notifications = {}
-
-    # Initialize push services token
-    global bullet
-    bullet = PushBullet( config.CONFIG.get('TOKEN_PUSHBULLET','') )
-
-    globals()['glob_precise'] = config.CONFIG.get('PRECISE',True)
 
     # Do Login
     global vk_api1
@@ -1377,15 +1382,37 @@ if __name__ == '__main__':
     try:
         main()
         util.say("execution finished")
+        fname = os.path.join( DIR_TMP, '.exception-notification' )
+        if os.path.exists( fname ):
+            os.unlink( fname )
     except Exception as e:
         tb = traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback)
         DBG.important('EXCEPTION: %s %s\n%s', [ type(e), unicode(e),
                             '\n'.join( filter(len, map( lambda s: s.rstrip(), tb)) ) ] )
-        for func in [Notifiers.bullet_notifier, Notifiers.logger_notifier ]:
-            glob_queue = main_notification_log
-            func( Notifiers(), 'EXCEPTION: %s %s' % (type(e),e), enforce = True )
-        ExecuteNotification()
-        util.say_cp866( unicode(e) )
+        msg = 'EXCEPTION: %s %s' % (type(e),e)
+
+        # detect that we already notified about same exception on previous call
+        sameFlag = False
+        if 'DIR_TMP' in globals():
+            fname = os.path.join( DIR_TMP, '.exception-notification' )
+            if os.path.exists( fname ):
+                with open(fname,'rb') as f:
+                    storedmsg = str_decode( f.read(), 'utf-8' )
+                    sameFlag = (storedmsg==unicode(msg))
+            #if sameFlag and (os.path.getmtime()+600)>time.time():       # "same flag" expired in 10 minutes
+            #    sameFlag = False
+
+            if not sameFlag:
+                for func in [Notifiers.bullet_notifier, Notifiers.logger_notifier ]:
+                    glob_queue = main_notification_log
+                    func( Notifiers(), msg, enforce = True )
+                with open(fname,'wb') as f:
+                    storedmsg = f.write( util.str_encode( msg, 'utf-8' ) )
+            else:
+                DBG.trace('suppressed repeat of exception notification')
+            ExecuteNotification()
+
+        util.say_cp866( unicode(msg) )
         raise
 
 
