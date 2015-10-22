@@ -272,6 +272,10 @@ repl_ar = {     "&#55357;&#56835;": ":-D ",
                 "&#127881;": "*HOLIDAY* ",
                 "&#128170;": "*BICEPS* ",
                 "&#9992;": "*PLANE* ",
+                "&#128557;": "*CRY* ",
+                "&#128525;": "*LOVE_EYES* ",
+                "&#128564;": "*SLEEP* ",
+                "&#128527": "*HMM* ",
          }
 
 stop_id = {}            # [profileid] = id of last saved message
