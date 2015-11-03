@@ -167,6 +167,7 @@ COMMAND_USER = None   # id of target user for notify
 glob_queue = None       # currently processed queue
 glob_precise = True     # True if high precision check, False if low precision check
 glob_jitter_detected = False  # raise to True if suspect about jitter
+glob_jitter_hour = False # True if currently time which is rich for long-time jitter (01:00-05:00 usually)
 
 old_dbg_important = DBG.important   # remember real DBG.important
 
@@ -308,7 +309,7 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
                         return True
         return False
 
-    global glob_jitter_detected
+    global glob_jitter_detected, glob_jitter_hour
     global glob_fname, glob_main
     jitter_fname = '.jitter~%s.%s'%(glob_fname,glob_main)
 
@@ -388,6 +389,12 @@ def compare_items( items, max_num, extra_fields_names, show_new_as_text = True, 
             old_val = str(i[idx+1])
             new_val = str( now_dict[ str(i[0]) ][idx+1] )
             if old_val != new_val:
+                # only like could jitter for long period - so if it happens in jitter hour wait forawhile
+                if glob_jitter_hour and new_val in ['0',0] and extra_fields_names[idx]=='likes':
+                    DBG.trace("Suppress jitter because of hour: [%s][%s] ignore change %s->%s" % (i[0],idx+1,old_val,new_val) )
+                    now_dict[ str(i[0]) ][idx+1] = old_val
+                    continue
+
                 enforceSave = True
                 if old_val=='?' or new_val=='?':
                     continue
