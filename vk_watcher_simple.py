@@ -260,11 +260,27 @@ def make_dict( items, max_num ):
 
 def TRACE_AR( name, ar ):
     if isinstance(ar,tuple) or isinstance(ar,list):
-        DBG.trace( 'name=%s (%s count=%d)\n%s', [name, type(ar), len(ar), '\n'.join( map( lambda v: '%d=\t%s' % (v[0],v[1]), enumerate(ar) ) )] )
+        message = util.unicformat( 'name=%s (%s count=%d)\n%s', [name, type(ar), len(ar), '\n'.join( map( lambda v: '%d=\t%s' % (v[0],v[1]), enumerate(ar) ) )] )
     elif isinstance(ar, dict):
-        DBG.trace( 'name=%s (dict count=%d)\n%s', [name, len(ar), '\n'.join( map( lambda v: '%s:\t%s' % (repr(v[0]),v[1]), ar.iteritems() ) )] )
+        message = util.unicformat( 'name=%s (dict count=%d)\n%s', [name, len(ar), '\n'.join( map( lambda v: '%s:\t%s' % (repr(v[0]),v[1]), ar.iteritems() ) )] )
     else:
-        DBG.trace( 'name=%s (%s)\n%s', [ name, type(ar), ar ])
+        message = util.unicformat( 'name=%s (%s)\n%s', [ name, type(ar), ar ])
+
+    import md5, base64
+    hashname = base64.b64encode( md5.new(message).digest() )
+    dname = os.path.join( os.path.split(os.path.abspath(DBG.logfile_name))[0], 'HASHED_FILES' )
+    if not os.path.exists(dname):
+        os.makedirs( dname )
+    log_filename = os.path.join( dname, md5hash )
+
+    try:
+        with open( log_filename, 'wb') as out:
+            out.write( util.str_encode( message, 'utf-8') )
+        DBG.trace( 'name=%s --> %s', [name,log_filename] )
+    except Exception as e:
+        DBG.trace( '<fail to create hashed file %s>: %s', [log_filename,str(e)] )
+        DBG.trace( message )
+
     #    print
 
 # FIND OUT WHAT WAS CHANGED IN ITEMS LIST
@@ -875,7 +891,8 @@ def ExecuteNotification():
         f.write(r)
 
     if notifications:
-        DBG.trace( 'unexecuted notifications: %s', [r] )
+        if filter( len, notifications.values() ):
+            DBG.trace( 'unexecuted notifications: %s', [r] )
 
 
 """ ==================================================================== """
@@ -1256,7 +1273,7 @@ def isAllowByRate( rate, prefix, hash_ ):
     pause = hash_cache[hashfile]
     if pause is not None and pause < 60*rate:
         if glob_vkapi.doPrepareOnly:
-            DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
+            ##DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
             print "skip %s - %.1f from %d minutes after last check" % ( prefix, pause/60, rate )
         return False
     return True
