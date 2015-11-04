@@ -271,7 +271,7 @@ def TRACE_AR( name, ar ):
     dname = os.path.join( os.path.split(os.path.abspath(DBG.logfile_name))[0], 'HASHED_FILES' )
     if not os.path.exists(dname):
         os.makedirs( dname )
-    log_filename = os.path.join( dname, md5hash )
+    log_filename = os.path.join( dname, hashname )
 
     try:
         with open( log_filename, 'wb') as out:

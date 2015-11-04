@@ -43,7 +43,7 @@ hour_now = time.localtime().tm_hour
 silent = (hour_now>=23 or hour_now<7)
 
 global glob_jitter_hour
-glob_jitter_hour = hour in range(1,6)           # on period 1-6a.m. VK like values could temporary be droped to zero for some minutes/hour. ignore that
+glob_jitter_hour = hour_now in range(1,6)           # on period 1-6a.m. VK like values could temporary be droped to zero for some minutes/hour. ignore that
 
 # Track "live vk" community (not more frequent than once per 9 minutes)
 Watch( 9, -2158488,  "live_vk",     [ "wall:*", "video:*", "photo:*", "mp3"], ["vk", 'bullet'] )
