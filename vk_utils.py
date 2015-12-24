@@ -135,19 +135,20 @@ def VKSignInSecondary( interactive ):
         raise util.OkExit('')
 
      secondary['USER_PASSWORD'] = ''
-     USER_LOGIN2 = config.CONFIG.get(SECONDARY_LOGIN, '')
+     USER_LOGIN2 = config.CONFIG.get('SECONDARY_LOGIN', '')
      if not USER_LOGIN2:
         raise FatalError('No login found')
      FILE_AUTH2 = _VKGetAUTHFile(USER_LOGIN2)
      if not config.CONFIG['SKIP_AUTH_TOKEN']:
-        vk_api2, me2, _ = VKLoginByToken(  FILE_AUTH, None )
+        vk_api2, me2, _ = VKLoginByToken(  FILE_AUTH2, None )
+     USER_PASSWORD2 = ''
      if vk_api2 is None:
         vk_api2, me2, USER_PASSWORD2 = VKLoginByPassword( USER_LOGIN2, 'SECONDARY_PWD', 'SECONDARY_PWD_ENC', FileAuth = None, interactive = interactive )
      VKSaveToken( vk_api2, FILE_AUTH2 )
 
      secondary = { 'vk_api': vk_api2, 'me': me2, 'USER_PASSWORD': USER_PASSWORD2 }
-  except Exception:
-        pass
+  except Exception as e:
+        print type(e), str(e)
   return secondary['vk_api'], secondary['me'], secondary['USER_PASSWORD']
 
 

@@ -57,6 +57,7 @@ import config
 def LoadConfig():
     more_options = { 'MACHINE':     True,           # Replace this with False only to initialize passwords
 
+                     'API2':        False,          # If TRUE, then we need to secondary login too
                      'ENFORCE':     False,          # If TRUE, then ignore lock file and rate
                      'PRECISE':     True,           # If TRUE, then use big packets to better change detection; If FALSE then sacrifice detection accuracy for trafic/speed
 
@@ -516,7 +517,7 @@ def wall_handler( vk_api, vk_id, options ):
 def video_handler( vk_api, vk_id, options ):
     precision = 200 if glob_precise else 100
     res = vk_api.video.get( owner_id=vk_id, count=precision, extended=1)
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     items = [ [ res[u'count'] ] ]
@@ -531,13 +532,13 @@ def video_handler( vk_api, vk_id, options ):
 def mp3_handler( vk_api, vk_id, options ):
     precision = 500 if glob_precise else 350
     res = vk_api.audio.get( owner_id=vk_id, count=precision, extended=1)
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     items = [ [ res[u'count'] ] ]
     for i in res[u'items']:
         items.append( [ '%s_%s'%(i[u'owner_id'],i[u'id']), u'%s - %s (%ssec)'% (i[u'artist'],i[u'title'],i['duration']) ] )
-    compare_items( items, precision-50, [], vk_resp=res )
+    return compare_items( items, precision-50, [], vk_resp=res )
 
 
 def photo_handler( vk_api, vk_id, options ):
@@ -547,7 +548,7 @@ def photo_handler( vk_api, vk_id, options ):
     res_comment = None
     if ('comments' in options) or ('*' in options):
         res_comment = vk_api.photos.getAllComments( owner_id=vk_id, count=precision_comm)
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     items = [ [ res[u'count'] ] ]
@@ -566,12 +567,12 @@ def photo_handler( vk_api, vk_id, options ):
     items = [ [ res_comment[u'count'] ] ]
     for i in res_comment[u'items']:
         items.append( [ '%s:%s'%(i[u'id'],i[u'pid']), u'%s_%s: %s' % ( vk_id, i[u'pid'], i[u'text'][:100] ) ] )
-    compare_items( items, precision_comm-10, [], vk_resp=res )
+    return compare_items( items, precision_comm-10, [], vk_resp=res )
 
 
 def message_handler( vk_api, vk_id, options ):
     res = vk_api.messages.getHistory( user_id=vk_id, count=1 )
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     first_item = res[u'items'][0] if len(res[u'items']) else {}
@@ -590,7 +591,7 @@ def status_handler( vk_api, vk_id, options ):
         res = vk_api.status.get( user_id=vk_id )
     else:
         res = vk_api.status.get( group_id=-vk_id )
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     text = res.get(u'text','')
@@ -625,7 +626,7 @@ def online_handler( vk_api, vk_id, options ):
                         7: 'web'
                     }
     res = vk_api.users.get( user_ids=vk_id, fields='online,last_seen' )
-    if vk_api.doPrepareOnly:
+    if hasattr(vk_api,'doPrepareOnly') and vk_api.doPrepareOnly is True:
         return
 
     # try to find numeric option - that is value for max ignored pause of offline
@@ -1165,15 +1166,21 @@ def main():
     notifications = {}
 
     # Do Login
-    global vk_api1
+    global vk_api1, vk_api2
     import vk.api
     vk.api.LOG_DIR = "./LOG_WATCHER"
     vk.api.LOG_FILE = '%s/vk_api.log' % vk.api.LOG_DIR
     interactive = 'first_time' in sys.argv
     if interactive:
         config.CONFIG['INVISIBLE_MODE'] = False
+
     vk_api1, me1, USER_PASSWORD1 = vk_utils.VKSignIn( USER_LOGIN, interactive )
-    ##vk_api2, me2, USER_PASSWORD2 = vk_utils.VKSignInSecondary( False )
+    vk1 = Watcher( vk_api1 )
+    api_list = [ vk1 ]
+    if config.CONFIG.get('API2',False):
+        vk_api2, me2, USER_PASSWORD2 = vk_utils.VKSignInSecondary( interactive )
+        vk2 = Watcher( vk_api2 )
+        api_list.append( vk2 )
     now = time.time()
 
     global COMMAND_USER     # who is the source of command and target for vk notify
@@ -1238,158 +1245,163 @@ def main():
                 SendMsg( vk_api1, v )
 
     global glob_vkapi
-    glob_vkapi = vk_utils.CachedVKAPI( vk_api1 )
+    glob_vkapi = vk_api1
+
     for pass_ in [ 1, 2 ]:
-        glob_vkapi.doPrepareOnly = ( pass_==1 )
+        for a in api_list:
+            a.vk.doPrepareOnly = ( pass_==1 )
         util.say( "Do %d pass", pass_ )
         #checkCommands()
         exec( watchers_code )           ##compile( watchers_code , "<watchers_py>", "exec")
 
         DBG.trace('execute requests')
-        glob_vkapi.execute()
+        for a in api_list:
+            a.vk.execute()
         DBG.trace('request done')
 
-    glob_vkapi = vk_api1
     ExecuteNotification()
 
 
-hash_cache = {}
-def isAllowByRate( rate, prefix, hash_ ):
-    global hash_cache, glob_vkapi, hashfile
-
-    hashfile = os.path.join( DIR_TMP, '.check_rate.%s.%x' % ( prefix, hash_ ) )
-    if config.CONFIG.get('ENFORCE',0):
-        return True
-
-    # negative rate means 'disable'
-    if rate<0:
-        return False
-
-    if hashfile not in hash_cache:
-        if os.path.exists( hashfile ):
-            hash_cache[hashfile] = time.time() - os.path.getmtime( hashfile )
-        else:
-            hash_cache[hashfile] = None
-    pause = hash_cache[hashfile]
-    if pause is not None and pause < 60*rate:
-        if glob_vkapi.doPrepareOnly:
-            ##DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
-            print "skip %s - %.1f from %d minutes after last check" % ( prefix, pause/60, rate )
-        return False
-    return True
-
-def TouchHashFile():
-    global hashfile
-    with open( hashfile, 'wb') as f:
-        f.write( '%s' % time.time() )
-
 
 """ ================== API =========================="""
-def Watch( rate, vk_id, fname, to_watch, to_notify ):
-    global glob_vkapi
+hash_cache = {}
+class Watcher( object ):
+    def __init__( self, vk_api ):
+        self.vk = vk_utils.CachedVKAPI( vk_api )
 
-    if not isAllowByRate( rate, '%s.%s'%(fname, vk_id), hash( repr([to_watch,to_notify]) ) ):
-        return
-    if _check( '.disable', fname ):
-        DBG.info( 'disabled %s', [fname])
-        return
+    def isAllowByRate( self, rate, prefix, hash_ ):
+        global hash_cache, hashfile
 
-    notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
-    if notify_ar and _check( '.silent', fname ):
-        DBG.info( 'silent %s', [fname])
-        notify_ar = []
+        hashfile = os.path.join( DIR_TMP, '.check_rate.%s.%x' % ( prefix, hash_ ) )
+        if config.CONFIG.get('ENFORCE',0):
+            return True
 
-    res = {}
-    for w in to_watch:
-        main, options = (w.replace(' ','').replace('\t','').lower().split(':')+[''])[:2]
-        options = filter( len, map( lambda s: s.strip(), options.split(',') ) )
-        func = globals().get( '%s_handler' % main, None )
-        if not callable( func ):
-            print "NO '%s' HANDLER FOUND" % main
-            continue
+        # negative rate means 'disable'
+        if rate<0:
+            return False
 
-        global glob_options, glob_notify, glob_fname, glob_main
-        glob_options, glob_notify, glob_main = options, notify_ar, main
+        if hashfile not in hash_cache:
+            if os.path.exists( hashfile ):
+                hash_cache[hashfile] = time.time() - os.path.getmtime( hashfile )
+            else:
+                hash_cache[hashfile] = None
+        pause = hash_cache[hashfile]
+        if pause is not None and pause < 60*rate:
+            if self.vk.doPrepareOnly:
+                ##DBG.trace('skip because of not expired yet (%.1f/%s)- %s' % (pause/60,rate,hashfile) )
+                print "skip %s - %.1f from %d minutes after last check" % ( prefix, pause/60, rate )
+            return False
+        return True
+
+    def TouchHashFile( self ):
+        global hashfile
+        with open( hashfile, 'wb') as f:
+            f.write( '%s' % time.time() )
+
+
+    def Watch( self, rate, vk_id, fname, to_watch, to_notify ):
+        if not self.isAllowByRate( rate, '%s.%s'%(fname, vk_id), hash( repr([to_watch,to_notify]) ) ):
+            return
+        if _check( '.disable', fname ):
+            DBG.info( 'disabled %s', [fname])
+            return
+
+        notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
+        if notify_ar and _check( '.silent', fname ):
+            DBG.info( 'silent %s', [fname])
+            notify_ar = []
+
+        res = {}
+        for w in to_watch:
+            main, options = (w.replace(' ','').replace('\t','').lower().split(':')+[''])[:2]
+            options = filter( len, map( lambda s: s.strip(), options.split(',') ) )
+            func = globals().get( '%s_handler' % main, None )
+            if not callable( func ):
+                print "NO '%s' HANDLER FOUND" % main
+                continue
+
+            global glob_options, glob_notify, glob_fname, glob_main
+            glob_options, glob_notify, glob_main = options, notify_ar, main
+            glob_fname = fname
+            DBG.trace( 'WATCH %s/%s [%spass]', [fname,main, 1 if self.vk.doPrepareOnly else 2 ])
+            try:
+                global glob_jitter_detected
+                glob_jitter_detected = False
+                rv = func( self.vk, vk_id, options )
+		DBG.trace('rv=%s; jitter=%s',[rv,glob_jitter_detected])
+                if rv is True:
+                    DBG.important("jitter detected - do re-request")
+                    glob_jitter_detected = True
+                    func( self.vk.vk_api, vk_id, options )
+            except vk.VkError as e:
+                DBG.say( DBG.TRACE, "VKError: %s", [str(e)] )
+
+        # after 2nd pass - mark that check done
+        if not self.vk.doPrepareOnly:
+            self.TouchHashFile()
+
+    def Run( self, rate, fname, cmd, to_notify ):
+        global  glob_fname
         glob_fname = fname
-        DBG.trace( 'WATCH %s/%s [%spass]', [fname,main, 1 if glob_vkapi.doPrepareOnly else 2 ])
-        try:
-            global glob_jitter_detected
-            glob_jitter_detected = False
-            rv = func( glob_vkapi, vk_id, options )
-            if rv is True:
-                DBG.important("jitter detected - do re-request")
-                glob_jitter_detected = True
-                func( glob_vkapi.vk_api, vk_id, options )
-        except vk.VkError as e:
-            DBG.say( DBG.TRACE, "VKError: %s", [str(e)] )
 
-    # after 2nd pass - mark that check done
-    if not glob_vkapi.doPrepareOnly:
-        TouchHashFile()
+        request = glob_backup_status.get(fname,'default')
+        if request=='default' and _check( '.autoclean', fname ):
+            request = 'default+autoclean'
+            rate *= 2
 
-def Run( rate, fname, cmd, to_notify ):
-    global glob_vkapi
+        if not request.startswith('default'):
+            DBG.trace('enforce because of request %s', [request])
+        elif not self.isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
+            return
+        if self.vk.doPrepareOnly:
+            return
 
-    global  glob_fname
-    glob_fname = fname
+        notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
+        if notify_ar and _check( '.silent', fname ):
+            DBG.info( 'silent %s', [fname])
+            notify_ar = []
 
-    request = glob_backup_status.get(fname,'default')
-    if request=='default' and _check( '.autoclean', fname ):
-        request = 'default+autoclean'
-        rate *= 2
+        global glob_notify
+        glob_notify = notify_ar
 
-    if not request.startswith('default'):
-        DBG.trace('enforce because of request %s', [request])
-    elif not isAllowByRate( rate, '-run-%s'%fname, hash( repr([cmd,to_notify]) ) ):
-        return
-    if glob_vkapi.doPrepareOnly:
-        return
+        #debug
+        #if request!='default':
+        #    make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
 
-    notify_ar = map( lambda s: (s.strip().split(':')+[''])[:2], to_notify )
-    if notify_ar and _check( '.silent', fname ):
-        DBG.info( 'silent %s', [fname])
-        notify_ar = []
+        if cmd[0]=='message' and len(cmd)>=4:
+            if request=='default+autoclean':
+                cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True", "--DEL_ENFORCED=True"] #- no del enforced because could del private video
+                cmd[3]='1'
+            if request=='store':
+                cmd[3]='-1'
+            elif request=='clean':
+                cmd[3]='1'
+                cmd+=["--KEEP_LAST_SECONDS=15", "--NOT_KEEP_IF_MINE=True"]
 
-    global glob_notify
-    glob_notify = notify_ar
+        stdout,stderr = RunMainScript( cmd )
+        res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
+        res = map( lambda s: (s.split('{MACHINE}: mode=',1)+[s])[1], res )              # safe cutoff {MACHINE} and before from each line
+        stdout = (''.join(res)).strip()
+        print "--\n%s\n%s" % ( stdout, stderr )
 
-    #debug
-    #if request!='default':
-    #    make_notify( ['TASK %s - request=%s'%(fname,request)], '.notificatons-messagerequest.log')
+        self.TouchHashFile()
 
-    if cmd[0]=='message' and len(cmd)>=4:
-        if request=='default+autoclean':
-            cmd += ["--KEEP_LAST_SECONDS=90", "--NOT_KEEP_IF_MINE=True", "--DEL_ENFORCED=True"] #- no del enforced because could del private video
-            cmd[3]='1'
-        if request=='store':
-            cmd[3]='-1'
-        elif request=='clean':
-            cmd[3]='1'
-            cmd+=["--KEEP_LAST_SECONDS=15", "--NOT_KEEP_IF_MINE=True"]
+        if cmd[0]!='message':
+            return
 
-    stdout,stderr = RunMainScript( cmd )
-    res = filter(lambda s: s.find("{MACHINE}:")>=0, stdout.splitlines(True) )       # filter only {MACHINE} lines
-    res = map( lambda s: (s.split('{MACHINE}: mode=',1)+[s])[1], res )              # safe cutoff {MACHINE} and before from each line
-    stdout = (''.join(res)).strip()
-    print "--\n%s\n%s" % ( stdout, stderr )
+        #msgid = 'default'   # -- this is for todo (is because of vk command received)
 
-    TouchHashFile()
+        IF_DEL = int(cmd[3])
+        # case: default regular save (store msg with postponed del) - do not notify because this is regular thing. Check result in the log
+        if ( IF_DEL==0 ):
+            return
 
-    if cmd[0]!='message':
-        return
+        # case: autosave on - do not notify if nothing was stored/deleted
+        if ( IF_DEL==1 and request.startswith('default') and stdout.find('. *0')>=0 and stdout.find('), -0(')>=0 ):
+            return
 
-    #msgid = 'default'   # -- this is for todo (is because of vk command received)
+        make_notify( [stdout + (u'\nERR: %s'%stderr if stderr else '')], '.notificatons-messagebackup.log')
 
-    IF_DEL = int(cmd[3])
-    # case: default regular save (store msg with postponed del) - do not notify because this is regular thing. Check result in the log
-    if ( IF_DEL==0 ):
-        return
-
-    # case: autosave on - do not notify if nothing was stored/deleted
-    if ( IF_DEL==1 and request.startswith('default') and stdout.find('. *0')>=0 and stdout.find('), -0(')>=0 ):
-        return
-
-    make_notify( [stdout + (u'\nERR: %s'%stderr if stderr else '')], '.notificatons-messagebackup.log')
 
 # Send notification about internal errors
 def new_dbg_important( self, *kw, **kww ):
@@ -1429,7 +1441,10 @@ if __name__ == '__main__':
             if not sameFlag:
                 for func in [Notifiers.bullet_notifier, Notifiers.logger_notifier ]:
                     glob_queue = main_notification_log
-                    func( Notifiers(), msg, enforce = True )
+                    try:
+                        func( Notifiers(), msg, enforce = True )
+                    except Exception as e:
+                        DBG.important('EXCEPTION WHEN NOTIFY: %s %s', [ type(e), unicode(e)] )
                 with open(fname,'wb') as f:
                     storedmsg = f.write( util.str_encode( msg, 'utf-8' ) )
             else:
