@@ -903,15 +903,18 @@ glob_backup_status = {} # glob_backup_status[task] = if temporary request given 
 
 # Internal function which register all handlers in glob_watchers dictionary
 def doRegistration( watchers_code ):
-    def Watch( rate, vk_id, fname, to_watch, to_notify ):
-        global glob_watchers
-        glob_watchers.setdefault( fname, [] ).append( ['watcher',vk_id, to_watch] )
+    class Mock( object ):
+        def Watch( self, rate, vk_id, fname, to_watch, to_notify ):
+            global glob_watchers
+            glob_watchers.setdefault( fname, [] ).append( ['watcher',vk_id, to_watch] )
 
-    def Run( rate, fname, cmd, to_notify ):
-        global glob_watchers
-        glob_watchers.setdefault( fname, [] ).append( ['backup', cmd, 'default'] )
+        def Run( self, rate, fname, cmd, to_notify ):
+            global glob_watchers
+            glob_watchers.setdefault( fname, [] ).append( ['backup', cmd, 'default'] )
 
     util.say( "Do cmd registering" )
+    vk1 = Mock()
+    vk2 = Mock()
     exec( watchers_code )           ##compile( watchers_code , "<watchers_py>", "exec")
 
 # add notification
@@ -1210,7 +1213,7 @@ def main():
         if int(r[u'id'])<=lastid:
             break
         if r[u'body'].strip().lower().startswith(u'vk_'):
-            commands.append( r[u'body'].strip())
+            commands.append( r[u'body'].strip() )
     if len(res[u'items']):
         with open( lastidfile, 'wb' ) as f:
             f.write( u'%s' % res[u'items'][0][u'id'] )
