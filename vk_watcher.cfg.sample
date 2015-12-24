@@ -9,6 +9,7 @@ WATCHERS_PY= './vk_watchers_list.py'		# PYTHON CODE WHiCH ACTUALLY DESCRIBE WATC
                                      
 #PYTHON_EXE = 'C:\MY\Python27\python.exe'			# usually detected automatically
 #VK_DOWNLOADER = 'C:\MY\GITHUB\vk_downloader\vk_downloader.py'  # usually detected automatically
+API2 = False			# If True, then vk_watchers_list.py could also operate vk2 as secondary account
 
 
 ####################################3
