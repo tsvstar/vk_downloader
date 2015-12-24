@@ -267,7 +267,7 @@ def TRACE_AR( name, ar ):
         message = util.unicformat( 'name=%s (%s)\n%s', [ name, type(ar), ar ])
 
     import md5, base64
-    hashname = base64.b64encode( md5.new(message).digest() )
+    hashname = base64.b64encode( md5.new(message).digest() ).replace('/','=')
     dname = os.path.join( os.path.split(os.path.abspath(DBG.logfile_name))[0], 'HASHED_FILES' )
     if not os.path.exists(dname):
         os.makedirs( dname )
